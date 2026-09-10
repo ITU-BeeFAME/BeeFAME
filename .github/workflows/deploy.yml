@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -20,28 +21,64 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 25m
           script: |
+            # Fail the job on ANY failing step, not just the build. Previously a
+            # broken `git pull` or `up -d` still reported success.
+            set -euo pipefail
+
             cd /opt/BeeFame
 
             echo "=== Pulling latest code ==="
-            git pull origin main
+            git fetch origin main
+            # --ff-only: refuse to deploy if the server has diverged from main,
+            # rather than silently discarding whatever is there.
+            git merge --ff-only origin/main
+            echo "Now at: $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)"
 
             echo "=== Rebuilding changed images ==="
-            docker compose build 2>&1 | tee /tmp/build.log
-            BUILD_EXIT=${PIPESTATUS[0]}
-            if [ $BUILD_EXIT -ne 0 ]; then
-              echo "=== BUILD FAILED (exit $BUILD_EXIT) — last 50 lines ==="
+            if ! docker compose build 2>&1 | tee /tmp/build.log; then
+              echo "=== BUILD FAILED — last 50 lines ==="
               tail -50 /tmp/build.log
-              exit $BUILD_EXIT
+              exit 1
             fi
 
             echo "=== Restarting services ==="
-            docker compose up -d
+            # --remove-orphans clears containers left by older compose files that
+            # would otherwise keep holding ports 3001/8000.
+            docker compose up -d --remove-orphans
+
+            echo "=== Running containers ==="
+            docker compose ps
 
             echo "=== Waiting for services to start ==="
             sleep 20
 
             echo "=== Health check ==="
-            curl -sf http://localhost:8000/status && echo "Backend OK" || echo "WARNING: Backend not ready yet"
-            curl -sf -o /dev/null -w "Frontend HTTP: %{http_code}\n" http://localhost:3001/ || echo "WARNING: Frontend not ready yet"
+            FAILED=0
+
+            if curl -sf http://localhost:8000/status > /dev/null; then
+              echo "Backend OK"
+            else
+              echo "FAIL: backend /status unreachable"; FAILED=1
+            fi
+
+            if curl -sf http://localhost:8001/docs > /dev/null; then
+              echo "Beespector OK"
+            else
+              echo "FAIL: beespector /docs unreachable"; FAILED=1
+            fi
+
+            # Verifies the running frontend is the CURRENT build: this proxy route
+            # only exists post-refactor, so a 404 means a stale image is serving.
+            if curl -sf http://localhost:3001/api/backend/datasets > /dev/null; then
+              echo "Frontend OK (proxy route reachable)"
+            else
+              echo "FAIL: frontend /api/backend/datasets unreachable — stale build or backend down"; FAILED=1
+            fi
+
+            if [ $FAILED -ne 0 ]; then
+              echo "=== DEPLOY FAILED health check ==="
+              docker compose logs --tail=40
+              exit 1
+            fi
 
             echo "=== Deploy complete ==="

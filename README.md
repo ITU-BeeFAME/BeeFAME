@@ -40,23 +40,31 @@ docker compose down
 ## Demo Walkthrough
 
 1. **Select Dataset & Classifier** — choose German Credit Data or Census Income, then pick a classifier (Random Forest, XGBoost, SVC, or Logistic Regression).
-2. **Check Bias Metrics** — radar charts display five fairness metrics per sensitive attribute (Age, Gender, Race) before any mitigation.
-3. **Select Mitigation** — choose a preprocessing strategy: Relabeller, Prevalence Sampling, or Data Repairer.
+2. **Check Bias Metrics** — radar charts display six fairness metrics per sensitive attribute (Age, Gender, Race) before any mitigation.
+3. **Select Mitigation** — choose one of nine strategies across three families:
+   - *Preprocessing*: Relabeller, Prevalence Sampling, Data Repairer, Fairness Through Unawareness
+   - *Inprocessing*: Exponentiated Gradient, Grid Search
+   - *Postprocessing*: Reject Option Classification, Equalized Odds Postprocessing, Threshold Optimizer DP
 4. **Review Results** — compare original vs. mitigated metrics side-by-side. Hit **Deep Dive with Beespector** to inspect individual predictions.
 
 > Results for default parameters are served from Redis cache for speed. Custom parameters trigger fresh computation (may take a few minutes depending on the dataset).
 
 ## Fairness Metrics
 
-All metrics are displayed as `1 - m` (or `m` for Disparate Impact), so **higher = fairer**:
+The API returns raw signed values; the UI transforms them so **higher = fairer**:
 
-| Metric | Ideal |
-|--------|-------|
-| Statistical Parity Difference (1-m) | 1.0 |
-| Equal Opportunity Difference (1-m) | 1.0 |
-| Average Odds Difference (1-m) | 1.0 |
-| Disparate Impact (m) | 1.0 |
-| Theil Index (1-m) | 1.0 |
+| Metric shown | Transform | Ideal |
+|--------|-----------|-------|
+| Statistical Parity Difference (1-m) | `1 - SPD` | 1.0 |
+| Equal Opportunity Difference (1-m) | `1 - EOD` | 1.0 |
+| Average Odds Difference (1-m) | `1 - AOD` | 1.0 |
+| Disparate Impact | `1 - abs(DI - 1)`, clamped to [0,1] | 1.0 |
+| Theil Between (1-m) | `1 - T_between` | 1.0 |
+| Theil Within (1-m) | `1 - T_within` | 1.0 |
+
+Disparate Impact uses a symmetric transform because both `DI < 1` and `DI > 1`
+indicate unfairness. Theil-T is reported decomposed (Shorrocks 1980), not as a
+single index.
 
 ## Subgroup (Intersectional) Analysis
 
@@ -109,12 +117,17 @@ Once running, interactive API docs are available at:
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` if you need to override the defaults:
+The browser never calls the APIs directly — it calls same-origin `/api/backend/*`
+and `/api/beespector/*`, which the Next.js server proxies to the internal containers.
+`docker-compose.yml` sets these already; copy `.env.example` to `.env` only for
+non-compose setups:
 
 | Variable | Default | Description |
 |---|---|---|
-| `NEXT_PUBLIC_BEEFAME_API_URL` | `http://localhost:8000` | Backend API URL seen by the browser |
-| `NEXT_PUBLIC_BEESPECTOR_URL` | `http://localhost:8001` | Beespector API URL seen by the browser |
+| `BACKEND_INTERNAL_URL` | `http://backend:8000` | Backend URL, resolved server-side by the frontend container |
+| `BEESPECTOR_INTERNAL_URL` | `http://beespector:8001` | Beespector URL, resolved server-side by the frontend container |
+| `REDIS_HOST` | `redis` in Docker, else `127.0.0.1` | Redis host for the backend cache |
+| `REDIS_PORT` | `6379` | Redis port |
 
 ## Project Structure
 
@@ -126,9 +139,9 @@ BeeFame/
 │   │   ├── service/      # Business logic + Redis caching
 │   │   ├── model/        # Pydantic schemas
 │   │   ├── repository/   # Data access
-│   │   └── data/         # Static JSON (datasets, classifiers, methods)
-│   ├── dockerfile
-│   └── requirements.txt
+│   │   ├── data/         # Static JSON (datasets, classifiers, methods)
+│   │   └── requirements.txt
+│   └── dockerfile
 │
 ├── beespector/       # FastAPI — model inspection & partial dependence API
 │   ├── main.py
@@ -151,12 +164,13 @@ BeeFame/
 
 ### Backend
 ```bash
-cd backend
+cd backend/app
 pip install -r requirements.txt
-cd app
 uvicorn main:app --reload --port 8000
 ```
-Requires Redis running locally on port 6379.
+Requires Redis running locally on port 6379. Note the requirements file lives in
+`backend/app/`, and `uvicorn` must run from that directory — the imports are
+top-level (`from controller import ...`), not package-relative.
 
 ### Beespector
 ```bash
@@ -169,5 +183,6 @@ uvicorn main:app --reload --port 8001
 ```bash
 cd frontend
 npm install
-npm run dev   # runs on http://localhost:3000 (dev) or start for port 3001
+npm run dev     # dev server on http://localhost:3000
+npm start       # production server on http://localhost:3001 (what Docker uses)
 ```

@@ -5,4 +5,5 @@ __pycache__/
 *.pyo
 *.pyd
 .idea/
-.vscode/
+.vscode/# Stored models live in a Docker volume, never in the image
+model_cache/

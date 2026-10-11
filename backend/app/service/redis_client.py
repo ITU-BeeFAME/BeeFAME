@@ -30,3 +30,12 @@ def get_redis_client() -> redis.Redis:
         db=db,
         decode_responses=decode_responses,
     )
+
+def cache_set(client: redis.Redis, key: str, value: str) -> None:
+    """Store a cache entry. CACHE_TTL_SECONDS > 0 sets an expiry; unset or 0
+    keeps the entry permanently, which precomputed results rely on."""
+    ttl = _get_env_int("CACHE_TTL_SECONDS", 0)
+    if ttl > 0:
+        client.setex(key, ttl, value)
+    else:
+        client.set(key, value)

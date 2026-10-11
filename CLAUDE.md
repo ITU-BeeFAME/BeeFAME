@@ -8,7 +8,7 @@ Three services + Redis, orchestrated by the root `docker-compose.yml`.
 | `frontend` | Next.js 13 (pages router), MUI 5, TypeScript | 3001 | `frontend/src/pages/demo.tsx` |
 | `backend` | FastAPI — fairness analysis & mitigation | 8000 | `backend/app/main.py` |
 | `beespector` | FastAPI — per-datapoint inspection & explainability | 8001 | `beespector/main.py` |
-| `redis` | Result cache (24h TTL) | 6379 | — |
+| `redis` | Result cache (permanent; see Precomputation) | 6379 | — |
 
 ## Fairness domain work
 
@@ -61,6 +61,27 @@ cd frontend && npm install && npm run dev
 There is no test suite. Verification is manual through the wizard or the `/docs` pages
 (http://localhost:8000/docs, http://localhost:8001/docs).
 
+## Precomputation
+
+The site is meant to serve every result from cache. `scripts/precompute.py` walks every
+combination the UI offers (datasets × classifiers × methods × target subgroups, plus every
+Beespector configuration) and requests each one, so Redis and Beespector's model store fill up.
+Run it beside the services, never through nginx (60s gateway timeout):
+
+```bash
+python3 scripts/precompute.py --dry-run   # list jobs
+python3 scripts/precompute.py             # run; safe to re-run, finished jobs are cache hits
+```
+
+What makes the combination space finite, and must stay true:
+- Test size is locked at 0.2 in the UI.
+- Selected subgroup pairs are **not** part of any cache key. A miss computes every pair the
+  dataset offers and `filter_subgroup_rows` trims the response to the selection.
+- Cache entries never expire unless `CACHE_TTL_SECONDS` is set.
+- Every randomised component is seeded (`ExponentiatedGradient.predict`,
+  `ThresholdOptimizer.predict`, `SVC(random_state=42)`), so a cached result equals a fresh one.
+  Keep new mitigators seeded too.
+
 ## Backend architecture
 
 Strict `controller → service → repository` layering under `backend/app/`:
@@ -76,7 +97,8 @@ Strict `controller → service → repository` layering under `backend/app/`:
   **not enough**: the matching `Enum` in `model/{dataset,classifier,method}.py` and the dispatch
   dict in `service/evaluation_service.py` must be updated too.
 
-Two request paths, both Redis-cached with the same slugified key scheme (`version:dataset:classifier:...`):
+Two request paths, both Redis-cached with the same slugified key scheme (`version:dataset:classifier:...`).
+Neither key includes the selected subgroup pairs (see Precomputation):
 
 - `POST /analysis` → `AnalysisService.analyse` → `initial_dataset_analysis` — baseline metrics, no mitigation. **Honours per-classifier hyperparameters.**
 - `POST /evaluation` → `EvaluationService.evaluate` — applies a mitigation, then re-measures. **Ignores hyperparameters** — it instantiates classifiers from a hard-coded dict. Do not assume the two paths train identical models.
@@ -113,18 +135,19 @@ both copies.
 State lives in a single module-level `context` global set by `POST /api/initialize_context`; every
 other endpoint reads it. The service is effectively single-session.
 
+Trained models are stored in `model_cache/` (the `beespector_models` Docker volume), one file per
+dataset/classifier/mitigation/params combination, and loaded on later visits instead of retrained.
+Dataset copies are cached there too, so UCI is only contacted once. **Bump `MODEL_CACHE_VERSION`
+whenever training code changes**, or stale models will keep being served.
+
 ## Known gotchas
 
-- **`beespector/model_cache/` is gitignored.** The `adult` + SVC path loads pre-trained `.pkl`
-  files from it and returns **HTTP 501** on a fresh clone. Run `python pretrain_svc.py` inside
-  `beespector/` to generate them.
+- `beespector/pretrain_svc.py` is unused: the Adult + SVC special case it fed was replaced by the
+  general model store. (It also maps the German target inverted relative to `main.py`.)
 - **The two services load different data.** Backend fetches the adult dataset as UCI id **2**;
   beespector and `pretrain_svc.py` use id **20**. They also encode German differently — backend
   uses the raw `Attribute9_A91` dummy, beespector derives a `sex` column from `attribute9`. Numbers
   are not expected to match across the two.
-- `beespector/pretrain_svc.py` maps the German target as `1 if x == 1 else 0`, while
-  `beespector/main.py` maps it as `0 if x == 1 else 1` — inverted. Only adult+SVC uses the
-  pretrained models today, so this is latent; verify before relying on German pretrained models.
 - `service/redis_client.py` reads `REDIS_HOST`/`REDIS_PORT`/`REDIS_DB`, and falls back to inferring
   the host from the presence of `/.dockerenv`. It does **not** understand a `REDIS_URL`-style
   connection string.
@@ -135,8 +158,11 @@ other endpoint reads it. The service is effectively single-session.
   absent from `method.json` and the `MethodName` enum, so it is unreachable from the UI.
 - `backend/docker-compose.yaml` is a stale standalone file (references a missing `.env`). The root
   `docker-compose.yml` is the real one.
-- Redis entries expire after 24h. To force recomputation without waiting, bump the relevant string
-  in `EvaluationService.METHOD_VERSIONS` or `AnalysisService.ANALYSIS_VERSION` — that changes the key.
+- Cache entries are permanent, so a code change that alters results will **not** show up until you
+  bump the relevant version (`EvaluationService.METHOD_VERSIONS`, `AnalysisService.ANALYSIS_VERSION`,
+  `DatasetService.SUBGROUP_PAIRS_VERSION`, Beespector's `MODEL_CACHE_VERSION`) and re-run the precompute.
+- Beespector does not implement Threshold Optimizer DP: it falls through to a sample-weighting
+  fallback, so Deep Dive shows a different model under that name.
 - Comments and log messages are a mix of English and Turkish. Match the surrounding file.
 
 ## Conventions

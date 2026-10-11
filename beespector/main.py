@@ -180,12 +180,53 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 CACHE_DIR = "model_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
+# Bump when the training code changes, so models stored by older code are not reused.
+MODEL_CACHE_VERSION = "v1"
+
+def _model_cache_path(request: InitializeContextRequest, sensitive_feature_actual: str) -> str:
+    # Browsers serialise 1.0 as 1, so normalise integral floats before hashing.
+    params = {k: int(v) if isinstance(v, float) and v.is_integer() else v
+              for k, v in request.classifier_params.items()}
+    params_hash = hashlib.sha1(json.dumps(params, sort_keys=True).encode()).hexdigest()[:10]
+    parts = [MODEL_CACHE_VERSION, request.dataset_name, request.base_classifier,
+             request.mitigation_method, sensitive_feature_actual, params_hash]
+    name = "_".join(str(p).lower().replace(" ", "-").replace("/", "-") for p in parts)
+    return os.path.join(CACHE_DIR, f"models_{name}.pkl")
+
+def _load_stored_models(path: str):
+    """Return (base_model, mitigated_model) stored for this configuration, or None."""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            stored = cloudpickle.load(f)
+        return stored["base_model"], stored["mitigated_model"]
+    except Exception as e:
+        logger.warning(f"Ignoring unreadable stored models at {path}: {e}")
+        return None
+
+def _store_models(path: str, base_model, mitigated_model) -> None:
+    # Write to a temporary file first so a crash never leaves a half-written model behind.
+    tmp_path = f"{path}.tmp"
+    try:
+        with open(tmp_path, "wb") as f:
+            cloudpickle.dump({"base_model": base_model, "mitigated_model": mitigated_model}, f)
+        os.replace(tmp_path, path)
+        logger.info(f"Stored trained models at {path}")
+    except Exception as e:
+        logger.warning(f"Could not store models at {path}: {e}")
+
 # --- Helper Functions ---
 
 def load_dataset(dataset_name: str) -> pd.DataFrame:
     dataset_map = {"adult": 20, "german": 144}
     if dataset_name not in dataset_map: 
         raise ValueError(f"Unsupported dataset: {dataset_name}")
+
+    # Fetching from UCI on every Deep Dive is slow and depends on UCI being up; keep a local copy.
+    cache_path = os.path.join(CACHE_DIR, f"dataset_{dataset_name}.pkl")
+    if os.path.exists(cache_path):
+        return pd.read_pickle(cache_path)
     
     logger.info(f"Fetching {dataset_name} dataset...")
     dataset = fetch_ucirepo(id=dataset_map[dataset_name])
@@ -254,6 +295,7 @@ def load_dataset(dataset_name: str) -> pd.DataFrame:
     df['id'] = df.index
     
     logger.info(f"Target distribution for {dataset_name}: \n{df['target'].value_counts()}")
+    df.to_pickle(cache_path)
     return df
 
 def get_feature_types(df: pd.DataFrame) -> Tuple[List[str], List[str]]:
@@ -423,7 +465,7 @@ class PostprocessingWrapper:
 
         elif self.method == 'equalized_odds_postprocessing':
             s = self._get_sensitive_groups(X)
-            return np.asarray(self.threshold_optimizer.predict(X, sensitive_features=s), dtype=int)
+            return np.asarray(self.threshold_optimizer.predict(X, sensitive_features=s, random_state=42), dtype=int)
 
         return self.base_model.predict(X)
 
@@ -479,94 +521,44 @@ async def initialize_context_endpoint(request: InitializeContextRequest):
         if df['target'].nunique() < 2:
             raise ValueError(f"Dataset '{context.dataset_name}' loaded with only one class.")
 
-        clf_key = request.base_classifier.lower().replace(' ', '_').replace('_(svc)', '')
-        is_svc_scenario = "svc" in clf_key or "support_vector_classification" in clf_key
+        context.target_column = 'target'
+        context.feature_columns = [c for c in df.columns if c not in ['target', 'id']]
         
-        if context.dataset_name == "adult" and is_svc_scenario:
-            logger.warning("Adult+SVC scenario detected. Loading pre-trained models.")
-
-            context.feature_columns = [c for c in df.columns if c not in ['target', 'id']]
-            context.x1_feature, context.x2_feature = "age", "hours_per_week"
-            context.base_classifier_type = request.base_classifier
-            context.mitigation_method = request.mitigation_method
-            # Set sensitive feature early (needed for postprocessing)
-            context.sensitive_feature_conceptual = request.sensitive_feature
-            sensitive_key = request.sensitive_feature.lower()
-            if sensitive_key in ['gender', 'sex']:
-                context.sensitive_feature_actual = 'sex'
-            elif sensitive_key == 'age':
-                context.sensitive_feature_actual = 'age'
-            elif sensitive_key == 'race':
-                context.sensitive_feature_actual = 'race'
-            else:
-                context.sensitive_feature_actual = request.sensitive_feature
-            # Use stratified split with fixed random state
-            context.X_train, context.X_test, context.y_train, context.y_test = train_test_split(
-                df[context.feature_columns], df['target'],
-                test_size=0.2, random_state=42
-            )
-
-            base_model_path = os.path.join(CACHE_DIR, "pretrained_adult_svc_default.pkl")
-            if not os.path.exists(base_model_path):
-                raise HTTPException(status_code=501, detail="Base pre-trained model not found. Please run pretrain_svc.py.")
-            with open(base_model_path, 'rb') as f:
-                context.base_model = cloudpickle.load(f)
-            logger.info("Loaded pre-trained BASE model.")
-
-            mitigation_method_key = request.mitigation_method.lower().replace(' ', '_')
-            if mitigation_method_key == 'none':
-                context.mitigated_model = context.base_model
-                logger.info("No mitigation selected, using base model as mitigated model.")
-            else:
-                mitigated_model_path = os.path.join(CACHE_DIR, f"mitigated_adult_svc_{mitigation_method_key}.pkl")
-                if os.path.exists(mitigated_model_path):
-                    with open(mitigated_model_path, 'rb') as f:
-                        context.mitigated_model = cloudpickle.load(f)
-                    logger.info(f"Loaded pre-trained MITIGATED model for '{mitigation_method_key}'.")
-                elif mitigation_method_key in {'reject_option_classification', 'equalized_odds_postprocessing'}:
-                    context.mitigated_model = PostprocessingWrapper(
-                        context.base_model, mitigation_method_key,
-                        context.X_train, context.y_train,
-                        context.sensitive_feature_actual
-                    )
-                    logger.info(f"Created postprocessing wrapper for '{mitigation_method_key}'.")
-                else:
-                    logger.warning(f"No pre-trained model for '{mitigation_method_key}', using base model.")
-                    context.mitigated_model = context.base_model
-
-            context.is_initialized = True
-
+        if context.dataset_name == "adult":
+            context.x1_feature, context.x2_feature, age_col, sex_col = "age", "hours_per_week", "age", "sex"
+        elif context.dataset_name == "german":
+            context.x1_feature, context.x2_feature, age_col, sex_col = "attribute13", "attribute5", "attribute13", "sex"
+        
+        context.sensitive_feature_conceptual = request.sensitive_feature
+        if request.sensitive_feature == 'age': 
+            context.sensitive_feature_actual = age_col
+        elif request.sensitive_feature == 'sex': 
+            context.sensitive_feature_actual = sex_col
+        else: 
+            context.sensitive_feature_actual = request.sensitive_feature
+        
+        X, y = df[context.feature_columns], df[context.target_column]
+        
+        #Use fixed random state and stratified split ***
+        context.X_train, context.X_test, context.y_train, context.y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+        
+        context.categorical_features, context.numerical_features = get_feature_types(df)
+        context.preprocessor = create_preprocessor(context.categorical_features, context.numerical_features, context.dataset_name)
+        
+        context.base_classifier_type = request.base_classifier
+        context.mitigation_method = request.mitigation_method
+        
+        # Training is slow (Adult + SVC especially), so each configuration is trained
+        # once and its models are stored on disk; later visits only load them.
+        model_path = _model_cache_path(request, context.sensitive_feature_actual)
+        stored = _load_stored_models(model_path)
+        if stored is not None:
+            context.base_model, context.mitigated_model = stored
+            logger.info(f"Loaded stored models from {model_path}")
         else:
-            logger.info("Training live model...")
-            context.target_column = 'target'
-            context.feature_columns = [c for c in df.columns if c not in ['target', 'id']]
-            
-            if context.dataset_name == "adult":
-                context.x1_feature, context.x2_feature, age_col, sex_col = "age", "hours_per_week", "age", "sex"
-            elif context.dataset_name == "german":
-                context.x1_feature, context.x2_feature, age_col, sex_col = "attribute13", "attribute5", "attribute13", "sex"
-            
-            context.sensitive_feature_conceptual = request.sensitive_feature
-            if request.sensitive_feature == 'age': 
-                context.sensitive_feature_actual = age_col
-            elif request.sensitive_feature == 'sex': 
-                context.sensitive_feature_actual = sex_col
-            else: 
-                context.sensitive_feature_actual = request.sensitive_feature
-            
-            X, y = df[context.feature_columns], df[context.target_column]
-            
-            #Use fixed random state and stratified split ***
-            context.X_train, context.X_test, context.y_train, context.y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42
-            )
-            
-            context.categorical_features, context.numerical_features = get_feature_types(df)
-            context.preprocessor = create_preprocessor(context.categorical_features, context.numerical_features, context.dataset_name)
-            
-            context.base_classifier_type = request.base_classifier
-            context.mitigation_method = request.mitigation_method
-            
+            logger.info("No stored models for this configuration; training...")
             # Train base model
             context.base_model = train_model(
                 context.X_train, context.y_train, 
@@ -633,8 +625,10 @@ async def initialize_context_endpoint(request: InitializeContextRequest):
                     def __init__(self, preprocessor, mitigator):
                         self.preprocessor = preprocessor
                         self.mitigator = mitigator
+                        # ExponentiatedGradient samples from its ensemble at predict time; seed it.
+                        self.predict_kwargs = {'random_state': 42} if type(mitigator).__name__ == 'ExponentiatedGradient' else {}
                     def predict(self, X):
-                        return self.mitigator.predict(self.preprocessor.transform(X))
+                        return self.mitigator.predict(self.preprocessor.transform(X), **self.predict_kwargs)
                     def predict_proba(self, X):
                         X_proc = self.preprocessor.transform(X)
                         if hasattr(self.mitigator, '_pmf_predict'):
@@ -697,7 +691,9 @@ async def initialize_context_endpoint(request: InitializeContextRequest):
                     context.preprocessor, sample_weight=weights
                 )
             
-            context.is_initialized = True
+            _store_models(model_path, context.base_model, context.mitigated_model)
+
+        context.is_initialized = True
         
         # Project the feature space into 2-D with PCA for the Datapoint Editor
         context.pca_pipeline = build_pca_pipeline(context.X_train, context.dataset_name)

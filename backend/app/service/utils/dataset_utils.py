@@ -18,6 +18,18 @@ from xgboost import XGBClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_score
 from ucimlrepo import fetch_ucirepo
+import functools
+
+
+@functools.lru_cache(maxsize=None)
+def _fetch_uci(dataset_id: int):
+    return fetch_ucirepo(id=dataset_id)
+
+
+def fetch_dataset(dataset_id: int):
+    """Download a UCI dataset once per process. Callers mutate the frames, so each gets a copy."""
+    dataset = _fetch_uci(dataset_id)
+    return dataset.data.features.copy(), dataset.data.targets.copy()
 
 # ─────────────────────────────────────────────
 # Label map'leri
@@ -44,6 +56,14 @@ def make_readable_group_label(cols: List[str], vals: List[str]) -> str:
         label = COLUMN_VALUE_LABELS.get(col, {}).get(val, val)
         parts.append(f"{display}={label}")
     return " × ".join(parts)
+
+def filter_subgroup_rows(rows: List[Dict[str, Any]], requested_labels: set) -> List[Dict[str, Any]]:
+    """Keep every per-attribute row, and subgroup rows only for the pairs the user selected.
+
+    Results are computed and cached for all subgroup pairs at once, so the same
+    cached fit can answer any selection of pairs.
+    """
+    return [r for r in rows if not r.get("Is Subgroup") or r.get("Sensitive Column") in requested_labels]
 
 def create_subgroup_column(X: pd.DataFrame, cols: List[str]) -> pd.Series:
     result = X[cols[0]].astype(str)
@@ -304,10 +324,7 @@ def initial_dataset_analysis(
 
     for dataset_name in dataset_names:
         dataset_name = dataset_name.value
-        dataset = fetch_ucirepo(id=dataset_dict[dataset_name])
-
-        X = dataset.data.features
-        y = dataset.data.targets
+        X, y = fetch_dataset(dataset_dict[dataset_name])
 
         if isinstance(y, pd.DataFrame):
             y = y.squeeze()
@@ -350,7 +367,7 @@ def initial_dataset_analysis(
             params = classifier_obj.params or {}
 
             if classifier_name == ClassifierName.SVC.value:
-                model = SVC(probability=True, **params)
+                model = SVC(probability=True, random_state=42, **params)
             elif classifier_name == ClassifierName.RFC.value:
                 model = RandomForestClassifier(random_state=42, **params)
             elif classifier_name == ClassifierName.XGB.value:

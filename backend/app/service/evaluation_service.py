@@ -7,6 +7,8 @@ from service.utils.dataset_utils import (
     create_subgroup_column,
     make_readable_group_label,
     calculate_per_group_metrics,
+    filter_subgroup_rows,
+    fetch_dataset,
 )
 import pandas as pd
 import numpy as np
@@ -31,7 +33,8 @@ import json
 import re
 import time
 import unicodedata
-from service.redis_client import get_redis_client
+from service.redis_client import get_redis_client, cache_set
+from service.dataset_service import DatasetService
 
 
 class EvaluationService:
@@ -39,25 +42,24 @@ class EvaluationService:
         self.redis_client = get_redis_client()
 
     METHOD_VERSIONS = {
-        "Label Flipping":                "v1",
-        "Data Repairer":                 "v1",
-        "Prevalence Sampling":           "v1",
-        "Relabeller":                    "v1",
-        "Fairness Through Unawareness":  "v1",
-        "Exponentiated Gradient":        "v1",
-        "Grid Search":                   "v1",
-        "Reject Option Classification":  "v1",
-        "Equalized Odds Postprocessing": "v1",
-        "Threshold Optimizer DP":        "v1",
-        "None":                          "v1",
+        "Label Flipping":                "v2",
+        "Data Repairer":                 "v2",
+        "Prevalence Sampling":           "v2",
+        "Relabeller":                    "v2",
+        "Fairness Through Unawareness":  "v2",
+        "Exponentiated Gradient":        "v2",
+        "Grid Search":                   "v2",
+        "Reject Option Classification":  "v2",
+        "Equalized Odds Postprocessing": "v2",
+        "Threshold Optimizer DP":        "v2",
+        "None":                          "v2",
     }
 
-    def _get_cache_key(self, dataset_name: str, classifier_name: str, method_name: str, test_size: float, pairs: Optional[List] = None, target_subgroup=None) -> str:
-        version = self.METHOD_VERSIONS.get(method_name, "v1")
+    def _get_cache_key(self, dataset_name: str, classifier_name: str, method_name: str, test_size: float, target_subgroup=None) -> str:
+        # The selected subgroup pairs are deliberately not part of the key: every pair is
+        # computed on a miss and the response is filtered, so one fit serves any selection.
+        version = self.METHOD_VERSIONS.get(method_name, "v2")
         base = f"{version}:{self._slugify(dataset_name)}:{self._slugify(classifier_name)}:{self._slugify(method_name)}:{test_size:.4f}"
-        if pairs:
-            pair_str = "_".join(sorted(f"{p['col1']}-{p['col2']}-{p.get('col3') or ''}" for p in pairs))
-            base += f":sg_{pair_str}"
         if target_subgroup:
             c3 = (target_subgroup.col3 or '') if hasattr(target_subgroup, 'col3') else ''
             base += f":tsg_{self._slugify(target_subgroup.col1)}_{self._slugify(target_subgroup.col2)}_{c3}_{self._slugify(target_subgroup.group_label)}"
@@ -70,9 +72,9 @@ class EvaluationService:
         text = text.strip('-')
         return text
 
-    def _get_cached_result(self, dataset_name: str, classifier_name: str, method_name: str, test_size: float, pairs: Optional[List] = None, target_subgroup=None):
+    def _get_cached_result(self, dataset_name: str, classifier_name: str, method_name: str, test_size: float, target_subgroup=None):
         try:
-            cache_key = self._get_cache_key(dataset_name, classifier_name, method_name, test_size, pairs, target_subgroup)
+            cache_key = self._get_cache_key(dataset_name, classifier_name, method_name, test_size, target_subgroup)
             raw = self.redis_client.get(cache_key)
             if not raw:
                 return None
@@ -84,12 +86,12 @@ class EvaluationService:
             logging.warning(f"Cache read error: {str(e)}")
             return None
 
-    def _set_cached_result(self, dataset_name: str, classifier_name: str, method_name: str, test_size: float, result_data: list, pairs: Optional[List] = None, target_subgroup=None):
+    def _set_cached_result(self, dataset_name: str, classifier_name: str, method_name: str, test_size: float, result_data: list, target_subgroup=None):
         try:
-            cache_key = self._get_cache_key(dataset_name, classifier_name, method_name, test_size, pairs, target_subgroup)
-            version = self.METHOD_VERSIONS.get(method_name, "v1")
+            cache_key = self._get_cache_key(dataset_name, classifier_name, method_name, test_size, target_subgroup)
+            version = self.METHOD_VERSIONS.get(method_name, "v2")
             wrapped = {"_v": version, "_ts": int(time.time()), "data": result_data}
-            self.redis_client.setex(cache_key, 86400, json.dumps(wrapped))
+            cache_set(self.redis_client, cache_key, json.dumps(wrapped))
         except Exception as e:
             logging.warning(f"Cache write error: {str(e)}")
 
@@ -110,7 +112,7 @@ class EvaluationService:
 
             classifiers = {
                 "Logistic Regression": LogisticRegression(max_iter=2000, random_state=random_state),
-                "Support Vector Classification (SVC)": SVC(probability=True),
+                "Support Vector Classification (SVC)": SVC(probability=True, random_state=random_state),
                 "Random Forest Classifier": RandomForestClassifier(random_state=random_state),
                 "XGBClassifier": XGBClassifier(random_state=random_state)
             }
@@ -140,25 +142,19 @@ class EvaluationService:
             classifiers = {k: v for k, v in classifiers.items() if k in classifier_names}
             methods = {k: v for k, v in methods.items() if k in method_names}
 
-            requested_pairs = []
-            if subgroup_pairs:
-                for p in subgroup_pairs:
-                    requested_pairs.append({
-                        "col1": p.col1,
-                        "col2": p.col2,
-                        "col3": p.col3 if hasattr(p, 'col3') else None,
-                        "label": p.label,
-                    })
+            requested_labels = {p.label for p in subgroup_pairs} if subgroup_pairs else set()
+            dataset_service = DatasetService()
 
             final_metrics = []
 
             for dataset_id, dataset_name in datasets.items():
+                # Compute every pair the dataset offers, whatever was selected.
+                compute_pairs = dataset_service.subgroup_pairs_for(dataset_name)
                 for method_name in methods.keys():
                     for model_name in classifiers.keys():
                         # Cache'e bak
                         cached_result = self._get_cached_result(
                             dataset_name, model_name, method_name, test_size,
-                            requested_pairs if requested_pairs else None,
                             target_subgroup,
                         )
                         if cached_result:
@@ -168,9 +164,7 @@ class EvaluationService:
 
                         logging.info(f"Computing {dataset_name}-{model_name}-{method_name}...")
 
-                        dataset = fetch_ucirepo(id=dataset_id)
-                        X = dataset.data.features
-                        y = dataset.data.targets
+                        X, y = fetch_dataset(dataset_id)
 
                         if isinstance(y, pd.DataFrame):
                             y = y.squeeze()
@@ -323,13 +317,13 @@ class EvaluationService:
                             })
 
                         # ── Subgroup metrikleri (mitigated model predictions kullanılır) ──
-                        if requested_pairs and mitigated_preds_per_col:
+                        if compute_pairs and mitigated_preds_per_col:
                             # All sensitive_column splits use same random_state → same X_test/y_test
                             first_col = next(iter(mitigated_preds_per_col))
                             ref_X_test = mitigated_preds_per_col[first_col][0]
                             ref_y_test = mitigated_preds_per_col[first_col][1]
 
-                            for pair in requested_pairs:
+                            for pair in compute_pairs:
                                 col1 = pair["col1"]
                                 col2 = pair["col2"]
                                 col3 = pair.get("col3")
@@ -372,12 +366,11 @@ class EvaluationService:
                         self._set_cached_result(
                             dataset_name, model_name, method_name, test_size,
                             combination_results,
-                            requested_pairs if requested_pairs else None,
                             target_subgroup,
                         )
                         final_metrics.extend(combination_results)
 
-            return final_metrics
+            return filter_subgroup_rows(final_metrics, requested_labels)
 
         except Exception as e:
             logging.error(f"Error during evaluation: {str(e)}")

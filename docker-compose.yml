@@ -21,6 +21,9 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8001:8001"
+    volumes:
+      # Trained models and dataset copies; must survive rebuilds and server moves
+      - beespector_models:/app/model_cache
     networks:
       - beefame
 
@@ -57,3 +60,4 @@ networks:
 
 volumes:
   redis_data:
+  beespector_models:

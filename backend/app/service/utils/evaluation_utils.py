@@ -3,6 +3,7 @@ Fairness preprocessing utilities — implemented locally to avoid aequitas.flow'
 broken dependency chain (hpt / omegaconf / hydra are not on PyPI).
 """
 
+import functools
 import numpy as np
 import pandas as pd
 from themis_ml.preprocessing.relabelling import Relabeller
@@ -159,6 +160,8 @@ def run_exponentiated_gradient(X_train_scaled, y_train, s_train, model):
         constraints=DemographicParity(),
     )
     mitigator.fit(X_train_scaled, y_train, sensitive_features=s)
+    # predict() samples from the fitted ensemble; seed it so results are reproducible.
+    mitigator.predict = functools.partial(mitigator.predict, random_state=42)
     return mitigator
 
 
@@ -244,7 +247,7 @@ def run_threshold_optimizer_dp(model, X_train_scaled, y_train, s_train, X_test_s
         prefit=True,
     )
     postprocessor.fit(X_train_scaled, y_train, sensitive_features=s_tr)
-    y_pred = postprocessor.predict(X_test_scaled, sensitive_features=s_te)
+    y_pred = postprocessor.predict(X_test_scaled, sensitive_features=s_te, random_state=42)
 
     return np.asarray(y_pred, dtype=int)
 
@@ -269,6 +272,6 @@ def run_equalized_odds(model, X_train_scaled, y_train, s_train, X_test_scaled, s
         prefit=True,
     )
     postprocessor.fit(X_train_scaled, y_train, sensitive_features=s_tr)
-    y_pred = postprocessor.predict(X_test_scaled, sensitive_features=s_te)
+    y_pred = postprocessor.predict(X_test_scaled, sensitive_features=s_te, random_state=42)
 
     return np.asarray(y_pred, dtype=int)

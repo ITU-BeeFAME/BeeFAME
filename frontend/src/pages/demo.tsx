@@ -532,7 +532,7 @@ const Page: NextPage = () => {
   const [analysisData, setAnalysisData] = useState<BiasSection[]>([]);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [testSize, setTestSize] = useState(0.2);
+  const [testSize] = useState(0.2);
   const [classifierParams, setClassifierParams] = useState<{ [id: number]: { [p: string]: any } }>({});
   const [paramPage, setParamPage] = useState<Record<number, number>>({});
 
@@ -843,7 +843,7 @@ const Page: NextPage = () => {
                   <Typography variant="h6" sx={{ mb: 2, mt: 4, fontWeight: 600, color: 'primary.main' }}>Select Test/Train Split Ratio</Typography>
                   <Paper sx={{ p: 2, bgcolor: 'background.default', mb: 2 }}>
                     <FormControl sx={{ width: '100%' }}>
-                      <TextField label="Test size" type="number" value={testSize} onChange={(e) => { const v = Number(e.target.value); if (!Number.isNaN(v)) setTestSize(v); }} inputProps={{ min: 0.05, max: 0.95, step: 0.05 }} helperText="Use a value between 0 and 1 (e.g., 0.2 = 20% test, 80% train)." />
+                      <TextField label="Test size" type="number" value={testSize} disabled inputProps={{ min: 0.05, max: 0.95, step: 0.05 }} helperText="Fixed at 0.2 (20% test, 80% train) so every result can be served from the precomputed cache." />
                     </FormControl>
                   </Paper>
 

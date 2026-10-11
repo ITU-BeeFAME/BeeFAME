@@ -81,4 +81,7 @@ jobs:
               exit 1
             fi
 
+            # Each build leaves the previous images dangling; drop them so the disk does not fill up.
+            docker image prune -f
+
             echo "=== Deploy complete ==="

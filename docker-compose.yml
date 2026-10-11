@@ -4,8 +4,9 @@ services:
     build:
       context: ./backend
       dockerfile: dockerfile
+    # Bound to localhost: nginx is the only public entry point.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -20,7 +21,7 @@ services:
       context: ./beespector
       dockerfile: Dockerfile
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     volumes:
       # Trained models and dataset copies; must survive rebuilds and server moves
       - beespector_models:/app/model_cache
@@ -33,7 +34,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     environment:
       - BACKEND_INTERNAL_URL=http://backend:8000
       - BEESPECTOR_INTERNAL_URL=http://beespector:8001
@@ -47,7 +48,7 @@ services:
     restart: unless-stopped
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --save 60 1 --appendonly yes

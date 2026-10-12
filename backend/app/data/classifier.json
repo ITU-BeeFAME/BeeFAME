@@ -5,8 +5,8 @@
     "url": "https://xgboost.readthedocs.io/en/stable/get_started.html",
     "params": [
       { "title": "n_estimators", "type": "int", "default": 100 },
-      { "title": "max_depth", "type": "int", "default": 3 },
-      { "title": "learning_rate", "type": "float", "default": 0.1 },
+      { "title": "max_depth", "type": "int", "default": 6 },
+      { "title": "learning_rate", "type": "float", "default": 0.3 },
       { "title": "subsample", "type": "float", "default": 1.0 },
       { "title": "colsample_bytree", "type": "float", "default": 1.0 }
     ]
@@ -28,7 +28,7 @@
     "url": "https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html",
     "params": [
       { "title": "n_estimators", "type": "int", "default": 100 },
-      { "title": "max_depth", "type": "int", "default": 3 },
+      { "title": "max_depth", "type": "int", "default": null },
       { "title": "min_samples_split", "type": "int", "default": 2 },
       { "title": "min_samples_leaf", "type": "int", "default": 1 },
       { "title": "max_features", "type": "str", "default": "sqrt" }
@@ -41,7 +41,7 @@
     "params": [
       { "title": "penalty", "type": "str", "default": "l2" },
       { "title": "solver", "type": "str", "default": "lbfgs" },
-      { "title": "max_iter", "type": "int", "default": 1000 },
+      { "title": "max_iter", "type": "int", "default": 2000 },
       { "title": "C", "type": "float", "default": 1.0 }
     ]
   }

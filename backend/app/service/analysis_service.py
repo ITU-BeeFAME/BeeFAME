@@ -16,7 +16,7 @@ from service.utils.dataset_utils import initial_dataset_analysis, filter_subgrou
 
 
 class AnalysisService:
-    ANALYSIS_VERSION = "v2"
+    ANALYSIS_VERSION = "v3"
 
     def __init__(self):
         self.redis_client = get_redis_client()

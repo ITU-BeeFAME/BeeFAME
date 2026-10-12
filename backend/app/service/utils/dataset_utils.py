@@ -364,7 +364,8 @@ def initial_dataset_analysis(
 
         for classifier_obj in classifiers:
             classifier_name = classifier_obj.name
-            params = classifier_obj.params or {}
+            # The panel sends '' for parameters left at the library default (e.g. max_depth=None).
+            params = {k: v for k, v in (classifier_obj.params or {}).items() if v not in ('', None)}
 
             if classifier_name == ClassifierName.SVC.value:
                 model = SVC(probability=True, random_state=42, **params)

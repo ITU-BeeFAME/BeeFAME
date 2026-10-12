@@ -100,8 +100,13 @@ Strict `controller → service → repository` layering under `backend/app/`:
 Two request paths, both Redis-cached with the same slugified key scheme (`version:dataset:classifier:...`).
 Neither key includes the selected subgroup pairs (see Precomputation):
 
-- `POST /analysis` → `AnalysisService.analyse` → `initial_dataset_analysis` — baseline metrics, no mitigation. **Honours per-classifier hyperparameters.**
-- `POST /evaluation` → `EvaluationService.evaluate` — applies a mitigation, then re-measures. **Ignores hyperparameters** — it instantiates classifiers from a hard-coded dict. Do not assume the two paths train identical models.
+- `POST /analysis` → `AnalysisService.analyse` → `initial_dataset_analysis`: baseline metrics, no mitigation. Trains with the parameters the panel sends.
+- `POST /evaluation` → `EvaluationService.evaluate`: applies a mitigation, then re-measures. **Ignores the panel's parameters** and builds classifiers from a hard-coded dict.
+
+Both stages must train the same model, or every before/after comparison mixes the mitigation's
+effect with a model change. The defaults in `data/classifier.json` are therefore set to exactly the
+values the evaluation dict uses (library defaults, verified to give bit-identical models), and the
+panel shows them read-only. **Change one, change the other**, and bump the cache versions.
 
 Mitigations are dispatched by three sets in `evaluation_service.py`, and each set has a different
 call signature and training flow:

@@ -1,14 +1,20 @@
+# Pinned to the exact versions in the production image (pip freeze, 2026-10-12).
+# fairlearn was previously unpinned; it resolves to 0.13.0 here because scikit-learn is pinned
+# to 1.3.2 (the backend runs 0.14.0). Bump MODEL_CACHE_VERSION if any of these change.
 annotated-types==0.7.0
 anyio==3.7.1
 click==8.2.0
 cloudpickle==3.1.1
 colorama==0.4.6
+fairlearn==0.13.0
 fastapi==0.104.1
 h11==0.16.0
 httptools==0.6.4
 idna==3.10
 joblib==1.3.2
+narwhals==2.27.1
 numpy==1.26.2
+packaging==26.3
 pandas==2.1.3
 pydantic==2.5.0
 pydantic_core==2.14.1
@@ -31,4 +37,3 @@ uvicorn==0.24.0
 watchfiles==1.0.5
 websockets==15.0.1
 xgboost==2.0.3
-fairlearn

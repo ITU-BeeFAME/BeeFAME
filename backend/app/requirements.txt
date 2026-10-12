@@ -1,12 +1,50 @@
-fastapi
-uvicorn
-pydantic
-fairlearn
-ucimlrepo
-python-dotenv
-fairgbm
-lightgbm
-xgboost
-themis-ml
-aif360
-redis>=4.0.0,<5.0.0
+# Pinned to the exact versions in the production image (pip freeze, 2026-10-12).
+# Unpinned requirements silently changed between builds (scikit-learn 1.9.0 -> 1.9.1),
+# and cached results must match what a fresh build would compute.
+# Top-level dependencies: fastapi, uvicorn, pydantic, fairlearn, ucimlrepo, python-dotenv,
+# fairgbm, lightgbm, xgboost, themis-ml, aif360, redis. To upgrade, change these, rebuild,
+# re-freeze, and bump the cache versions (see CLAUDE.md, Precomputation).
+aif360==0.6.1
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+click==8.5.0
+cloudpickle==3.1.2
+contourpy==1.3.3
+cycler==0.12.1
+fairgbm==0.9.14
+fairlearn==0.14.0
+fastapi==0.143.0
+fonttools==4.66.1
+h11==0.16.0
+idna==3.20
+joblib==1.6.0
+kiwisolver==1.5.1
+lightgbm==4.7.0
+matplotlib==3.11.2
+narwhals==2.27.1
+numpy==2.4.6
+nvidia-nccl-cu12==2.32.3
+opentelemetry-api==1.45.1
+packaging==26.3
+pandas==3.0.6
+pathlib2==2.3.7.post1
+pillow==12.3.0
+pydantic==2.14.1
+pydantic_core==2.50.1
+pyparsing==3.3.3
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.4
+redis==4.6.0
+scikit-learn==1.9.1
+scipy==1.17.1
+six==1.17.0
+starlette==1.7.0
+themis-ml==0.0.4
+threadpoolctl==3.7.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+ucimlrepo==0.0.7
+uvicorn==0.54.0
+xgboost==3.2.0

@@ -313,6 +313,9 @@ def get_feature_types(df: pd.DataFrame) -> Tuple[List[str], List[str]]:
     return categorical, numerical
 
 def create_preprocessor(cat_feats: List[str], num_feats: List[str], dataset_name: str):
+    # Work on a copy: the caller's list is context.categorical_features, which the FTU branch
+    # reuses later; removing the German ordinal columns from it made them pass through unencoded.
+    cat_feats = list(cat_feats)
     ordinal_features = []
     ordinal_categories = []
     

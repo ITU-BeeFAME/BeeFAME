@@ -11,10 +11,21 @@ from model.dataset import DatasetInfo, SensitiveFeatures, SubgroupPair, Subgroup
 
 DATASET_ID_MAP = {"german": 144, "adult": 2}
 
+# Bump a dataset's entry whenever its preprocessing changes: only that dataset's cached results
+# are invalidated. Datasets without an entry keep their original cache keys.
+DATASET_CACHE_VERSIONS = {
+    "german": "d2",  # d2: Gender derived from all of Attribute9 (was the Attribute9_A91 dummy)
+}
+
+
+def dataset_cache_tag(slug: str) -> str:
+    version = DATASET_CACHE_VERSIONS.get(slug)
+    return f"{version}:" if version else ""
+
 SENSITIVE_COLUMNS_MAP = {
     "german": {
         "Age": "age_binary",
-        "Gender": "Attribute9_A91",
+        "Gender": "sex_Female",
     },
     "adult": {
         "Age": "age_binary",
@@ -26,14 +37,12 @@ SENSITIVE_COLUMNS_MAP = {
 COLUMN_PRIVILEGE_MAP = {
     "age_binary":     {"privileged": "1", "unprivileged": "0"},
     "sex_Female":     {"privileged": "0", "unprivileged": "1"},
-    "Attribute9_A91": {"privileged": "1", "unprivileged": "0"},
     "race_binary":    {"privileged": "1", "unprivileged": "0"},
 }
 
 COLUMN_VALUE_LABELS = {
     "age_binary":     {"0": "Young", "1": "Old"},
     "sex_Female":     {"0": "Male",  "1": "Female"},
-    "Attribute9_A91": {"0": "Female","1": "Male"},
     "race_binary":    {"0": "Non-white", "1": "White"},
 }
 
@@ -100,6 +109,10 @@ class DatasetRepository:
             if "Attribute13" in X.columns:
                 X["age_binary"] = (X["Attribute13"] >= 50).astype(int)
                 X.drop("Attribute13", axis=1, inplace=True)
+            if "Attribute9" in X.columns:
+                # Attribute9 mixes sex and marital status; A92 and A95 are the female codes.
+                X["sex_Female"] = X["Attribute9"].isin(["A92", "A95"]).astype(int)
+                X.drop("Attribute9", axis=1, inplace=True)
 
         X = X.copy().replace("?", np.nan).dropna()
         X = pd.get_dummies(X)

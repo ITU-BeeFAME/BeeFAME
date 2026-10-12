@@ -1,6 +1,6 @@
 # app/service/dataset_service.py
 import logging
-from repository.dataset_repository import DatasetRepository
+from repository.dataset_repository import DatasetRepository, dataset_cache_tag
 from model.dataset import DatasetAnalysis, DatasetInfo, SubgroupPairsResponse
 from service.redis_client import get_redis_client, cache_set
 from service.utils.dataset_utils import initial_dataset_analysis
@@ -21,7 +21,7 @@ class DatasetService:
 
     def get_subgroup_pairs(self, slug: str) -> SubgroupPairsResponse:
         # Listing the pairs downloads the whole dataset from UCI, so cache the result.
-        cache_key = f"{self.SUBGROUP_PAIRS_VERSION}:subgroup-pairs:{slug}"
+        cache_key = f"{self.SUBGROUP_PAIRS_VERSION}:subgroup-pairs:{dataset_cache_tag(slug)}{slug}"
         try:
             raw = self.redis_client.get(cache_key)
             if raw:

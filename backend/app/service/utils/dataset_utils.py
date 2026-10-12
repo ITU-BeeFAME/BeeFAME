@@ -38,14 +38,12 @@ def fetch_dataset(dataset_id: int):
 COLUMN_VALUE_LABELS: Dict[str, Dict[str, str]] = {
     "age_binary":     {"0": "Young", "1": "Old", "False": "Young", "True": "Old"},
     "sex_Female":     {"0": "Male",  "1": "Female", "False": "Male", "True": "Female"},
-    "Attribute9_A91": {"0": "Female","1": "Male",   "False": "Female","True": "Male"},
     "race_binary":    {"0": "Non-white", "1": "White", "False": "Non-white", "True": "White"},
 }
 
 COLUMN_DISPLAY: Dict[str, str] = {
     "age_binary":     "Age",
     "sex_Female":     "Gender",
-    "Attribute9_A91": "Gender",
     "race_binary":    "Race",
 }
 
@@ -343,8 +341,12 @@ def initial_dataset_analysis(
             if 'Attribute13' in X.columns:
                 X['age_binary'] = (X['Attribute13'] >= 50).astype(int)
                 X.drop('Attribute13', axis=1, inplace=True)
-            sensitive_columns = ['Attribute9_A91', 'age_binary']
-            sensitive_columns_display = {'Attribute9_A91': 'Gender', 'age_binary': 'Age'}
+            if 'Attribute9' in X.columns:
+                # Attribute9 mixes sex and marital status; A92 and A95 are the female codes.
+                X['sex_Female'] = X['Attribute9'].isin(['A92', 'A95']).astype(int)
+                X.drop('Attribute9', axis=1, inplace=True)
+            sensitive_columns = ['sex_Female', 'age_binary']
+            sensitive_columns_display = {'sex_Female': 'Gender', 'age_binary': 'Age'}
 
         X = X.copy().replace('?', np.nan).dropna()
         y = y.loc[X.index]

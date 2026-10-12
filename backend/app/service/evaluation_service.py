@@ -35,6 +35,7 @@ import time
 import unicodedata
 from service.redis_client import get_redis_client, cache_set
 from service.dataset_service import DatasetService
+from repository.dataset_repository import dataset_cache_tag
 
 
 class EvaluationService:
@@ -59,7 +60,8 @@ class EvaluationService:
         # The selected subgroup pairs are deliberately not part of the key: every pair is
         # computed on a miss and the response is filtered, so one fit serves any selection.
         version = self.METHOD_VERSIONS.get(method_name, "v2")
-        base = f"{version}:{self._slugify(dataset_name)}:{self._slugify(classifier_name)}:{self._slugify(method_name)}:{test_size:.4f}"
+        slug = self._slugify(dataset_name)
+        base = f"{version}:{dataset_cache_tag(slug)}{slug}:{self._slugify(classifier_name)}:{self._slugify(method_name)}:{test_size:.4f}"
         if target_subgroup:
             c3 = (target_subgroup.col3 or '') if hasattr(target_subgroup, 'col3') else ''
             base += f":tsg_{self._slugify(target_subgroup.col1)}_{self._slugify(target_subgroup.col2)}_{c3}_{self._slugify(target_subgroup.group_label)}"
@@ -183,8 +185,12 @@ class EvaluationService:
                             if 'Attribute13' in X.columns:
                                 X['age_binary'] = (X['Attribute13'] >= 50).astype(int)
                                 X.drop('Attribute13', axis=1, inplace=True)
-                            sensitive_columns = ['Attribute9_A91', 'age_binary']
-                            sensitive_columns_display = {'Attribute9_A91': 'Gender', 'age_binary': 'Age'}
+                            if 'Attribute9' in X.columns:
+                                # Attribute9 mixes sex and marital status; A92 and A95 are the female codes.
+                                X['sex_Female'] = X['Attribute9'].isin(['A92', 'A95']).astype(int)
+                                X.drop('Attribute9', axis=1, inplace=True)
+                            sensitive_columns = ['sex_Female', 'age_binary']
+                            sensitive_columns_display = {'sex_Female': 'Gender', 'age_binary': 'Age'}
 
                         X = X.copy().replace('?', np.nan).dropna()
                         y = y.loc[X.index]

@@ -8,6 +8,7 @@ import logging
 import unicodedata
 from service.redis_client import get_redis_client, cache_set
 from service.dataset_service import DatasetService
+from repository.dataset_repository import dataset_cache_tag
 from model.analysis import ClassifierRequest
 from model.classifier import ClassifierName
 from model.dataset import DatasetName
@@ -24,7 +25,8 @@ class AnalysisService:
     def _get_cache_key(self, dataset_name: str, classifier_name: str, test_size: float) -> str:
         # The selected subgroup pairs are deliberately not part of the key: every pair is
         # computed on a miss and the response is filtered, so one fit serves any selection.
-        return f"{self.ANALYSIS_VERSION}:{self._slugify(dataset_name)}:{self._slugify(classifier_name)}:{test_size:.4f}"
+        slug = self._slugify(dataset_name)
+        return f"{self.ANALYSIS_VERSION}:{dataset_cache_tag(slug)}{slug}:{self._slugify(classifier_name)}:{test_size:.4f}"
 
     def _slugify(self, text: str) -> str:
         text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('utf-8')

@@ -150,9 +150,11 @@ whenever training code changes**, or stale models will keep being served.
 - `beespector/pretrain_svc.py` is unused: the Adult + SVC special case it fed was replaced by the
   general model store. (It also maps the German target inverted relative to `main.py`.)
 - **The two services load different data.** Backend fetches the adult dataset as UCI id **2**;
-  beespector and `pretrain_svc.py` use id **20**. They also encode German differently — backend
-  uses the raw `Attribute9_A91` dummy, beespector derives a `sex` column from `attribute9`. Numbers
-  are not expected to match across the two.
+  beespector and `pretrain_svc.py` use id **20**. Both derive German gender from `attribute9`
+  (A92/A95 = female), but the backend drops `Attribute9` and beespector keeps it. Numbers are not
+  expected to match across the two.
+- German's target is **1 = bad credit** in both services, so for German the positive class is the
+  unfavourable outcome and selection-rate metrics (SPD, DI) measure who is flagged as risky.
 - `service/redis_client.py` reads `REDIS_HOST`/`REDIS_PORT`/`REDIS_DB`, and falls back to inferring
   the host from the presence of `/.dockerenv`. It does **not** understand a `REDIS_URL`-style
   connection string.
@@ -166,6 +168,8 @@ whenever training code changes**, or stale models will keep being served.
 - Cache entries are permanent, so a code change that alters results will **not** show up until you
   bump the relevant version (`EvaluationService.METHOD_VERSIONS`, `AnalysisService.ANALYSIS_VERSION`,
   `DatasetService.SUBGROUP_PAIRS_VERSION`, Beespector's `MODEL_CACHE_VERSION`) and re-run the precompute.
+  A change to one dataset's preprocessing bumps only `DATASET_CACHE_VERSIONS` in
+  `repository/dataset_repository.py`, which invalidates that dataset's results and nothing else.
 - Beespector does not implement Threshold Optimizer DP: it falls through to a sample-weighting
   fallback, so Deep Dive shows a different model under that name.
 - Comments and log messages are a mix of English and Turkish. Match the surrounding file.
@@ -178,6 +182,6 @@ whenever training code changes**, or stale models will keep being served.
   clamped to `[0,1]` (both DI < 1 and DI > 1 are unfair).
 - `random_state=42` throughout. Keep it — the subgroup code relies on every sensitive-column split
   producing the same `X_test`.
-- Sensitive columns are internal names (`age_binary`, `sex_Female`, `Attribute9_A91`,
-  `race_binary`) mapped to display names via `COLUMN_DISPLAY` / `COLUMN_VALUE_LABELS` in
+- Sensitive columns are internal names (`age_binary`, `sex_Female`, `race_binary`; German uses
+  `sex_Female` too) mapped to display names via `COLUMN_DISPLAY` / `COLUMN_VALUE_LABELS` in
   `dataset_utils.py`. New sensitive attributes must be registered in both dicts.

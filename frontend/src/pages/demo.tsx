@@ -632,7 +632,7 @@ const Page: NextPage = () => {
           };
         });
         setAnalysisData(transformed); setCtxAnalysis(transformed);
-      } catch { setAnalysisError('Failed to analyze dataset. Please try again.'); }
+      } catch (e: any) { setAnalysisError(e?.response?.data?.detail || 'Failed to analyze dataset. Please try again.'); }
       finally { setAnalysisLoading(false); }
 
     } else if (activeStep === 2 && selectedMitigations.length > 0) {
@@ -730,7 +730,7 @@ const Page: NextPage = () => {
 
         setAnalysisData([...updated, ...mitigatedSubgroups]);
         setCtxAnalysis([...updated, ...mitigatedSubgroups]);
-      } catch { setAnalysisError('Failed to apply mitigation. Please try again.'); }
+      } catch (e: any) { setAnalysisError(e?.response?.data?.detail || 'Failed to apply mitigation. Please try again.'); }
       finally { setAnalysisLoading(false); }
 
     } else { setActiveStep((s) => s + 1); }

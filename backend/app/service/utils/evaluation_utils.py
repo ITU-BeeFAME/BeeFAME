@@ -131,17 +131,32 @@ def run_prevalence_sampling(X_train, y_train, s_train):
 
 
 def run_relabeller(X_train, y_train, s_train):
+    # themis-ml computes the number of label swaps assuming s = 1 is the disadvantaged group; when
+    # 1 is the privileged group (Age = Old, Race = White) the count turns negative and the labels
+    # collapse. Recode s so that 1 is always the group with the lower favourable rate.
+    s = np.asarray(s_train.cat.codes if hasattr(s_train, "cat") else s_train, dtype=int)
+    y = np.asarray(y_train, dtype=int)
+    rates = {g: y[s == g].mean() for g in np.unique(s)}
+    s_disadvantaged = (s == min(rates, key=rates.get)).astype(int)
     relabeller = Relabeller()
-    relabeller.fit(X_train, y_train, s_train)
+    relabeller.fit(X_train, y_train, s_disadvantaged)
     y_transformed = relabeller.transform(X_train)
     return X_train, y_transformed
 
 
-def run_ftu(X_train, y_train, s_train, sensitive_column=None):
-    """Fairness Through Unawareness: drop the sensitive column from features."""
-    X = X_train.copy()
-    if sensitive_column and sensitive_column in X.columns:
-        X = X.drop(columns=[sensitive_column])
+def attribute_columns(columns, column):
+    """Every column that encodes the same attribute as `column`.
+
+    get_dummies splits Census Income's `sex` into sex_Female and sex_Male, so dropping only the
+    sensitive column would leave the attribute in the data.
+    """
+    prefix = column.rsplit("_", 1)[0] + "_"
+    return [c for c in columns if c == column or c.startswith(prefix)]
+
+
+def run_ftu(X_train, y_train, s_train, drop_columns=()):
+    """Fairness Through Unawareness: drop every column that encodes the protected attribute."""
+    X = X_train.drop(columns=[c for c in drop_columns if c in X_train.columns])
     return X, y_train.copy()
 
 

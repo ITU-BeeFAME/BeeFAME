@@ -8,6 +8,7 @@ import logging
 import unicodedata
 from service.redis_client import get_redis_client, cache_set
 from service.dataset_service import DatasetService
+from service.precompute_guard import check_on_demand
 from repository.dataset_repository import dataset_cache_tag
 from model.analysis import ClassifierRequest
 from model.classifier import ClassifierName
@@ -62,6 +63,8 @@ class AnalysisService:
                     missing_pairs.append((dataset, classifier_request))
 
         if missing_pairs:
+            for ds, cr in missing_pairs:
+                check_on_demand(ds.value, cr.name)
             dataset_service = DatasetService()
             # Each dataset has its own subgroup pairs, so compute one dataset at a time.
             for dataset in dict.fromkeys(ds for ds, _ in missing_pairs):

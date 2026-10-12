@@ -25,6 +25,7 @@ from .utils.evaluation_utils import (
     run_relabeller, run_ftu, run_exponentiated_gradient,
     run_grid_search, run_reject_option, run_equalized_odds,
     run_threshold_optimizer_dp,
+    attribute_columns,
 )
 from ucimlrepo import fetch_ucirepo
 import warnings
@@ -35,6 +36,7 @@ import time
 import unicodedata
 from service.redis_client import get_redis_client, cache_set
 from service.dataset_service import DatasetService
+from service.precompute_guard import check_on_demand
 from repository.dataset_repository import dataset_cache_tag
 
 
@@ -46,8 +48,8 @@ class EvaluationService:
         "Label Flipping":                "v2",
         "Data Repairer":                 "v2",
         "Prevalence Sampling":           "v2",
-        "Relabeller":                    "v2",
-        "Fairness Through Unawareness":  "v2",
+        "Relabeller":                    "v3",  # v3: disadvantaged group recoded to 1
+        "Fairness Through Unawareness":  "v3",  # v3: drops every column of the attribute
         "Exponentiated Gradient":        "v2",
         "Grid Search":                   "v2",
         "Reject Option Classification":  "v2",
@@ -164,6 +166,7 @@ class EvaluationService:
                             final_metrics.extend(cached_result)
                             continue
 
+                        check_on_demand(dataset_name, model_name, method_name)
                         logging.info(f"Computing {dataset_name}-{model_name}-{method_name}...")
 
                         X, y = fetch_dataset(dataset_id)
@@ -261,8 +264,12 @@ class EvaluationService:
                             method_func = methods[method_name]
 
                             if method_name == FTU_METHOD:
-                                X_train_transformed, y_train_transformed = method_func(X_train, y_train, s_train, sensitive_column=mit_col)
-                                X_test_ftu = X_test.drop(columns=[mit_col]) if mit_col in X_test.columns else X_test
+                                # Unaware of the protected attribute: drop every column that encodes it,
+                                # and for a target subgroup also the attributes that define the subgroup.
+                                ftu_attributes = [mit_col] + (tsg_cols if binary_mit_col else [])
+                                drop_cols = sorted({c for a in ftu_attributes for c in attribute_columns(X_train.columns, a)})
+                                X_train_transformed, y_train_transformed = method_func(X_train, y_train, s_train, drop_columns=drop_cols)
+                                X_test_ftu = X_test.drop(columns=drop_cols)
                                 ftu_scaler = StandardScaler()
                                 X_train_transformed_scaled = ftu_scaler.fit_transform(X_train_transformed)
                                 X_test_eval_scaled = ftu_scaler.transform(X_test_ftu)

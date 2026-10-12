@@ -189,6 +189,14 @@ DATASET_CACHE_VERSIONS = {
 }
 
 
+# Bump a mitigation's entry when its training changes: only its stored models are rebuilt.
+METHOD_MODEL_VERSIONS = {
+    "threshold_optimizer_dp": "m2",  # m2: fairlearn ThresholdOptimizer (was a sample-weighting fallback)
+}
+
+SLOW_ON_DEMAND = "SERVE_SLOW_FROM_CACHE_ONLY"
+
+
 def _dataset_cache_name(dataset_name: str) -> str:
     version = DATASET_CACHE_VERSIONS.get(dataset_name)
     return f"{dataset_name}-{version}" if version else dataset_name
@@ -198,8 +206,10 @@ def _model_cache_path(request: InitializeContextRequest, sensitive_feature_actua
     params = {k: int(v) if isinstance(v, float) and v.is_integer() else v
               for k, v in request.classifier_params.items()}
     params_hash = hashlib.sha1(json.dumps(params, sort_keys=True).encode()).hexdigest()[:10]
+    method_version = METHOD_MODEL_VERSIONS.get(request.mitigation_method)
+    method = f"{request.mitigation_method}-{method_version}" if method_version else request.mitigation_method
     parts = [MODEL_CACHE_VERSION, _dataset_cache_name(request.dataset_name), request.base_classifier,
-             request.mitigation_method, sensitive_feature_actual, params_hash]
+             method, sensitive_feature_actual, params_hash]
     name = "_".join(str(p).lower().replace(" ", "-").replace("/", "-") for p in parts)
     return os.path.join(CACHE_DIR, f"models_{name}.pkl")
 
@@ -454,14 +464,19 @@ class PostprocessingWrapper:
                 return s_col.map(group_map).fillna(0).astype(int).values
         return np.zeros(len(X), dtype=int)
 
+    THRESHOLD_CONSTRAINTS = {
+        'equalized_odds_postprocessing': 'equalized_odds',
+        'threshold_optimizer_dp': 'demographic_parity',
+    }
+
     def _fit_postprocessing(self, X_train, y_train):
         """Learn postprocessing parameters from training data."""
-        if self.method == 'equalized_odds_postprocessing':
+        if self.method in self.THRESHOLD_CONSTRAINTS:
             from fairlearn.postprocessing import ThresholdOptimizer
             s_tr = self._get_sensitive_groups(X_train)
             self.threshold_optimizer = ThresholdOptimizer(
                 estimator=self.base_model,
-                constraints="equalized_odds",
+                constraints=self.THRESHOLD_CONSTRAINTS[self.method],
                 prefit=True,
             )
             self.threshold_optimizer.fit(X_train, y_train, sensitive_features=s_tr)
@@ -477,7 +492,7 @@ class PostprocessingWrapper:
             y_pred[uncertain & (s == 1)] = 0
             return y_pred
 
-        elif self.method == 'equalized_odds_postprocessing':
+        elif self.method in self.THRESHOLD_CONSTRAINTS:
             s = self._get_sensitive_groups(X)
             return np.asarray(self.threshold_optimizer.predict(X, sensitive_features=s, random_state=42), dtype=int)
 
@@ -572,6 +587,14 @@ async def initialize_context_endpoint(request: InitializeContextRequest):
             context.base_model, context.mitigated_model = stored
             logger.info(f"Loaded stored models from {model_path}")
         else:
+            # On the demo server, slow configurations are served from the stored models only.
+            if os.getenv(SLOW_ON_DEMAND) == "1" and context.dataset_name == "adult" and (
+                    request.base_classifier.lower() in ('svc', 'support_vector_classification')
+                    or request.mitigation_method.lower() in ('exponentiated_gradient', 'grid_search')):
+                raise HTTPException(status_code=503, detail=(
+                    "This configuration is too slow to compute on the demo server and has not been "
+                    "precomputed yet. Try another classifier or mitigation method, or run BeeFAME "
+                    "locally (see the README)."))
             logger.info("No stored models for this configuration; training...")
             # Train base model
             context.base_model = train_model(
@@ -584,7 +607,7 @@ async def initialize_context_endpoint(request: InitializeContextRequest):
             mitigation_key = context.mitigation_method.lower().replace(' ', '_')
             PREPROCESSING_METHODS = {'relabeller', 'prevalence_sampling', 'data_repairer', 'fairness_through_unawareness'}
             INPROCESSING_METHODS = {'exponentiated_gradient', 'grid_search'}
-            POSTPROCESSING_METHODS = {'reject_option_classification', 'equalized_odds_postprocessing'}
+            POSTPROCESSING_METHODS = {'reject_option_classification', 'equalized_odds_postprocessing', 'threshold_optimizer_dp'}
 
             if mitigation_key == 'none':
                 context.mitigated_model = context.base_model
@@ -721,6 +744,8 @@ async def initialize_context_endpoint(request: InitializeContextRequest):
             "n_samples": len(df)
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error initializing context: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"An internal error occurred: {str(e)}")

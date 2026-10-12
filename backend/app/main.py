@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from controller import analysis_router, dataset_router, method_router, classifier_router, evaluation_router
+from service.precompute_guard import NotPrecomputedError
 
 app = FastAPI(
     title="BeeFAME REST API",
@@ -18,6 +19,11 @@ app.add_middleware(
     allow_methods=["*"],  
     allow_headers=["*"],
 )
+
+@app.exception_handler(NotPrecomputedError)
+def not_precomputed(request, exc: NotPrecomputedError):
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
 
 @app.get("/status", summary="Health Check")
 def get_status():

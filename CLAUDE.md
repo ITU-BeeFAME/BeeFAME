@@ -171,8 +171,12 @@ whenever training code changes**, or stale models will keep being served.
   A change to one dataset's preprocessing bumps only `DATASET_CACHE_VERSIONS` in
   `repository/dataset_repository.py`, which invalidates that dataset's results and nothing else;
   Beespector has its own `DATASET_CACHE_VERSIONS` for its stored dataset copies and models.
-- Beespector does not implement Threshold Optimizer DP: it falls through to a sample-weighting
-  fallback, so Deep Dive shows a different model under that name.
+- `SERVE_SLOW_FROM_CACHE_ONLY=1` is set only on the demo server (in its untracked `.env`). There,
+  an uncached Census Income configuration with SVC or an in-processing method answers 503 instead of
+  training (`service/precompute_guard.py`, and the matching check in Beespector's
+  `initialize_context`). Locally it is unset and everything is computed on demand.
+- Beespector's mitigations differ from the backend's: its Age groups are `age <= 30` = young (the
+  backend uses `age >= 50` = old), and its preprocessing methods group by the raw sensitive column.
 - Comments and log messages are a mix of English and Turkish. Match the surrounding file.
 
 ## Conventions

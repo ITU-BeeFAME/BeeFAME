@@ -182,13 +182,23 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Bump when the training code changes, so models stored by older code are not reused.
 MODEL_CACHE_VERSION = "v1"
+# Bump a dataset's entry when its loading changes: only that dataset's stored copy and models are
+# rebuilt. Datasets without an entry keep their original file names.
+DATASET_CACHE_VERSIONS = {
+    "german": "d2",  # d2: target flipped so that 1 = good credit (was 1 = bad credit)
+}
+
+
+def _dataset_cache_name(dataset_name: str) -> str:
+    version = DATASET_CACHE_VERSIONS.get(dataset_name)
+    return f"{dataset_name}-{version}" if version else dataset_name
 
 def _model_cache_path(request: InitializeContextRequest, sensitive_feature_actual: str) -> str:
     # Browsers serialise 1.0 as 1, so normalise integral floats before hashing.
     params = {k: int(v) if isinstance(v, float) and v.is_integer() else v
               for k, v in request.classifier_params.items()}
     params_hash = hashlib.sha1(json.dumps(params, sort_keys=True).encode()).hexdigest()[:10]
-    parts = [MODEL_CACHE_VERSION, request.dataset_name, request.base_classifier,
+    parts = [MODEL_CACHE_VERSION, _dataset_cache_name(request.dataset_name), request.base_classifier,
              request.mitigation_method, sensitive_feature_actual, params_hash]
     name = "_".join(str(p).lower().replace(" ", "-").replace("/", "-") for p in parts)
     return os.path.join(CACHE_DIR, f"models_{name}.pkl")
@@ -224,7 +234,7 @@ def load_dataset(dataset_name: str) -> pd.DataFrame:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
     # Fetching from UCI on every Deep Dive is slow and depends on UCI being up; keep a local copy.
-    cache_path = os.path.join(CACHE_DIR, f"dataset_{dataset_name}.pkl")
+    cache_path = os.path.join(CACHE_DIR, f"dataset_{_dataset_cache_name(dataset_name)}.pkl")
     if os.path.exists(cache_path):
         return pd.read_pickle(cache_path)
     
@@ -242,7 +252,8 @@ def load_dataset(dataset_name: str) -> pd.DataFrame:
         
     elif dataset_name == "german":
         
-        df['target'] = df['class'].apply(lambda x: 0 if x == 1 else 1)
+        # class 1 = good credit, 2 = bad; good credit (the favourable outcome) is the positive class.
+        df['target'] = df['class'].apply(lambda x: 1 if x == 1 else 0)
         df = df.drop(columns=['class'])
         
         

@@ -148,13 +148,13 @@ whenever training code changes**, or stale models will keep being served.
 ## Known gotchas
 
 - `beespector/pretrain_svc.py` is unused: the Adult + SVC special case it fed was replaced by the
-  general model store. (It also maps the German target inverted relative to `main.py`.)
+  general model store.
 - **The two services load different data.** Backend fetches the adult dataset as UCI id **2**;
   beespector and `pretrain_svc.py` use id **20**. Both derive German gender from `attribute9`
   (A92/A95 = female), but the backend drops `Attribute9` and beespector keeps it. Numbers are not
   expected to match across the two.
-- German's target is **1 = bad credit** in both services, so for German the positive class is the
-  unfavourable outcome and selection-rate metrics (SPD, DI) measure who is flagged as risky.
+- German's target is **1 = good credit** (the favourable outcome) in both services, so SPD and DI
+  measure who is granted good credit. Before 2026-10-12 it was inverted (1 = bad credit).
 - `service/redis_client.py` reads `REDIS_HOST`/`REDIS_PORT`/`REDIS_DB`, and falls back to inferring
   the host from the presence of `/.dockerenv`. It does **not** understand a `REDIS_URL`-style
   connection string.
@@ -169,14 +169,17 @@ whenever training code changes**, or stale models will keep being served.
   bump the relevant version (`EvaluationService.METHOD_VERSIONS`, `AnalysisService.ANALYSIS_VERSION`,
   `DatasetService.SUBGROUP_PAIRS_VERSION`, Beespector's `MODEL_CACHE_VERSION`) and re-run the precompute.
   A change to one dataset's preprocessing bumps only `DATASET_CACHE_VERSIONS` in
-  `repository/dataset_repository.py`, which invalidates that dataset's results and nothing else.
+  `repository/dataset_repository.py`, which invalidates that dataset's results and nothing else;
+  Beespector has its own `DATASET_CACHE_VERSIONS` for its stored dataset copies and models.
 - Beespector does not implement Threshold Optimizer DP: it falls through to a sample-weighting
   fallback, so Deep Dive shows a different model under that name.
 - Comments and log messages are a mix of English and Turkish. Match the surrounding file.
 
 ## Conventions
 
-- The backend returns **raw signed** metric values. The "higher = fairer" transform happens
+- The backend returns **unsigned** group gaps: SPD, EOD, AOD and DI use fairlearn's
+  `between_groups` (largest minus smallest, smallest over largest), so they say how large a gap
+  is but not which group it favours, and DI never exceeds 1. The "higher = fairer" transform happens
   entirely in the frontend, in `toMetrics` (`frontend/src/pages/demo.tsx:461`): SPD, EOD, AOD and
   both Theil terms become `1 - m`, while Disparate Impact goes through `symDI` = `1 - |DI - 1|`
   clamped to `[0,1]` (both DI < 1 and DI > 1 are unfair).

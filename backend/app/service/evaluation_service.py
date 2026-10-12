@@ -195,8 +195,9 @@ class EvaluationService:
                         X = X.copy().replace('?', np.nan).dropna()
                         y = y.loc[X.index]
 
+                        # German: 1 = good credit, 2 = bad. Map good credit (the favourable outcome) to 1.
                         if y.nunique() == 2 and set(y.unique()).issubset({1, 2}):
-                            y = y.replace({1: 0, 2: 1}).astype(int)
+                            y = y.replace({1: 1, 2: 0}).astype(int)
 
                         X = pd.get_dummies(X)
 

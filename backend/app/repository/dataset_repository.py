@@ -14,7 +14,9 @@ DATASET_ID_MAP = {"german": 144, "adult": 2}
 # Bump a dataset's entry whenever its preprocessing changes: only that dataset's cached results
 # are invalidated. Datasets without an entry keep their original cache keys.
 DATASET_CACHE_VERSIONS = {
-    "german": "d2",  # d2: Gender derived from all of Attribute9 (was the Attribute9_A91 dummy)
+    # d2: Gender derived from all of Attribute9 (was the Attribute9_A91 dummy), and the target
+    # flipped so that 1 = good credit, the favourable outcome (was 1 = bad credit).
+    "german": "d2",
 }
 
 

@@ -7,6 +7,7 @@ import functools
 import numpy as np
 import pandas as pd
 from themis_ml.preprocessing.relabelling import Relabeller
+from sklearn.linear_model import LogisticRegression
 
 
 class _Float64ProbaEstimator:
@@ -138,7 +139,9 @@ def run_relabeller(X_train, y_train, s_train):
     y = np.asarray(y_train, dtype=int)
     rates = {g: y[s == g].mean() for g in np.unique(s)}
     s_disadvantaged = (s == min(rates, key=rates.get)).astype(int)
-    relabeller = Relabeller()
+    # Pass a fresh ranker: Relabeller's default LogisticRegression() is one object shared by every
+    # instance, so concurrent requests refitted each other's ranker between fit and predict.
+    relabeller = Relabeller(ranker=LogisticRegression())
     relabeller.fit(X_train, y_train, s_disadvantaged)
     y_transformed = relabeller.transform(X_train)
     return X_train, y_transformed

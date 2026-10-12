@@ -48,7 +48,7 @@ class EvaluationService:
         "Label Flipping":                "v2",
         "Data Repairer":                 "v2",
         "Prevalence Sampling":           "v2",
-        "Relabeller":                    "v3",  # v3: disadvantaged group recoded to 1
+        "Relabeller":                    "v4",  # v3: disadvantaged group recoded to 1; v4: own ranker per call
         "Fairness Through Unawareness":  "v3",  # v3: drops every column of the attribute
         "Exponentiated Gradient":        "v2",
         "Grid Search":                   "v2",

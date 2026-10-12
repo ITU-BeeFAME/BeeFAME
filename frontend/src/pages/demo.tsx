@@ -781,7 +781,10 @@ const Page: NextPage = () => {
               ) : error ? <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> : (
                 <>
                   <Alert icon={<ErrorOutline />} severity="info" sx={{ mb: 2 }}>
-                    In test scenarios where default parameters are employed, the results are retrieved from a precomputed cache to ensure consistency and reduce computation time.
+                    This is a demo instance: results for its two benchmark datasets and four classifiers come from a precomputed cache.
+                    To use your own dataset or model, clone the{' '}
+                    <Link href="https://github.com/ITU-BeeFAME/BeeFAME#bring-your-own-dataset-or-classifier" target="_blank" rel="noopener">BeeFAME repository</Link>{' '}
+                    and add them; they run through the same pipeline and appear next to these.
                   </Alert>
 
                   {/* Dataset */}

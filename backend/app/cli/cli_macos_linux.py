@@ -816,7 +816,9 @@ def run_cli(stdscr):
                         
                         selected_methods_enum = [MethodName(method) for method in selected_methods]
                         logging.getLogger().setLevel(logging.ERROR)
-                        run_cli.evaluation_result = evaluation_service.evaluate(selected_datasets_enum, selected_classifier_configs, selected_methods_enum, test_size)
+                        # The evaluation stage takes classifier names, not configs: it trains with the same library
+                        # defaults the panel shows, so the parameters are not passed here.
+                        run_cli.evaluation_result = evaluation_service.evaluate(selected_datasets_enum, [ClassifierName(c.name) for c in selected_classifier_configs], selected_methods_enum, test_size)
                         logging.getLogger().setLevel(logging.DEBUG)
                         run_cli.evaluation_done = True
                     

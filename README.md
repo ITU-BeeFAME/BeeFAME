@@ -109,6 +109,16 @@ Fairness Index = Σ (support_g × max(|SPD_g|, |FPR_div_g|, |FNR_div_g|))
 
 When running the evaluation wizard you can optionally nominate one group as the **target subgroup**. The chosen mitigation algorithm then uses a binary sensitive attribute (1 = target group, 0 = everyone else) instead of the original sensitive column, focusing bias reduction on that specific intersection. Fairness metrics are still reported against the original sensitive columns.
 
+## Terminal Interface
+
+The same pipeline is available as an interactive terminal menu, without a browser:
+
+```bash
+docker compose exec backend python -m cli.cli_macos_linux
+```
+
+For scripting, use the REST API below; `scripts/precompute.py` is an example client that sweeps every combination.
+
 ## API Docs
 
 Once running, interactive API docs are available at:

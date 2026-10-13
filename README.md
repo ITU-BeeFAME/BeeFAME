@@ -197,7 +197,7 @@ non-compose setups:
 | `BEESPECTOR_INTERNAL_URL` | `http://beespector:8001` | Beespector URL, resolved server-side by the frontend container |
 | `REDIS_HOST` | `redis` in Docker, else `127.0.0.1` | Redis host for the backend cache |
 | `REDIS_PORT` | `6379` | Redis port |
-| `SERVE_SLOW_FROM_CACHE_ONLY` | `0` | `1` on the demo server: slow Census Income configurations (SVC or in-processing) are served from the precomputed cache only and answer 503 until precomputed, instead of being trained on demand |
+| `SERVE_FROM_CACHE_ONLY` | `0` | `1` on the demo server: results come from the precomputed cache only; anything not precomputed answers 503 instead of being trained. Leave it unset locally, where every configuration is computed on demand |
 
 ## Project Structure
 

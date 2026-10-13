@@ -1,9 +1,6 @@
 # app/service/precompute_guard.py
-"""On the public demo server, slow configurations are served from the precomputed cache only."""
+"""The public demo server answers from the precomputed cache only and never trains a model."""
 import os
-
-SLOW_CLASSIFIERS = {"Support Vector Classification (SVC)"}
-SLOW_METHODS = {"Exponentiated Gradient", "Grid Search"}
 
 
 class NotPrecomputedError(Exception):
@@ -11,16 +8,15 @@ class NotPrecomputedError(Exception):
 
 
 def check_on_demand(dataset: str, classifier: str, method: str = None) -> None:
-    """Refuse to train a slow configuration on a server that sets SERVE_SLOW_FROM_CACHE_ONLY=1.
+    """Refuse to compute a result on a server that sets SERVE_FROM_CACHE_ONLY=1.
 
-    Census Income with SVC or an in-processing method takes from minutes to hours and can exhaust
-    the memory of a small server. Everywhere else (the variable unset), everything is computed.
+    The demo server precomputes every configuration the wizard offers, so a miss there is either a
+    configuration still being precomputed or a request the wizard never sends (other test sizes or
+    hyperparameters through the API). Training it could take hours and exhaust the server's memory.
+    Locally (the variable unset) every configuration is computed on demand and then cached.
     """
-    if os.getenv("SERVE_SLOW_FROM_CACHE_ONLY") != "1":
-        return
-    if dataset == "adult" and (classifier in SLOW_CLASSIFIERS or method in SLOW_METHODS):
+    if os.getenv("SERVE_FROM_CACHE_ONLY") == "1":
         raise NotPrecomputedError(
-            "This configuration is too slow to compute on the demo server and has not been "
-            "precomputed yet. Try another classifier or mitigation method, or run BeeFAME "
-            "locally (see the README)."
+            "This configuration has not been precomputed for the demo server. Try another one, or run "
+            "BeeFAME locally, where any configuration is computed on demand (see the README)."
         )

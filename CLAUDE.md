@@ -173,10 +173,11 @@ whenever training code changes**, or stale models will keep being served.
   A change to one dataset's preprocessing bumps only `DATASET_CACHE_VERSIONS` in
   `repository/dataset_repository.py`, which invalidates that dataset's results and nothing else;
   Beespector has its own `DATASET_CACHE_VERSIONS` for its stored dataset copies and models.
-- `SERVE_SLOW_FROM_CACHE_ONLY=1` is set only on the demo server (in its untracked `.env`). There,
-  an uncached Census Income configuration with SVC or an in-processing method answers 503 instead of
-  training (`service/precompute_guard.py`, and the matching check in Beespector's
-  `initialize_context`). Locally it is unset and everything is computed on demand.
+- `SERVE_FROM_CACHE_ONLY=1` is set only on the demo server (in its untracked `.env`). There, any
+  cache miss answers 503 instead of training (`service/precompute_guard.py`, and the matching check
+  in Beespector's `initialize_context`): the server never trains a model, and API requests the
+  wizard never sends (other test sizes, hyperparameters) cannot load it. Locally it is unset and
+  everything is computed on demand. Precompute on another machine and sync the results.
 - A protected attribute added to the backend must also be added to Beespector's `protected_group`
   (`AGE_COLUMNS` / `PRIVILEGED_VALUES`), or Deep Dive will group it differently.
 - Comments and log messages are a mix of English and Turkish. Match the surrounding file.

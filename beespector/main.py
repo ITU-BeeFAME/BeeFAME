@@ -194,7 +194,7 @@ METHOD_MODEL_VERSIONS = {
     "threshold_optimizer_dp": "m2",  # m2: fairlearn ThresholdOptimizer (was a sample-weighting fallback)
 }
 
-SLOW_ON_DEMAND = "SERVE_SLOW_FROM_CACHE_ONLY"
+CACHE_ONLY = "SERVE_FROM_CACHE_ONLY"
 
 
 # Protected groups, defined exactly as the backend wizard defines them so that Deep Dive compares
@@ -595,14 +595,11 @@ async def initialize_context_endpoint(request: InitializeContextRequest):
             context.base_model, context.mitigated_model = stored
             logger.info(f"Loaded stored models from {model_path}")
         else:
-            # On the demo server, slow configurations are served from the stored models only.
-            if os.getenv(SLOW_ON_DEMAND) == "1" and context.dataset_name == "adult" and (
-                    request.base_classifier.lower() in ('svc', 'support_vector_classification')
-                    or request.mitigation_method.lower() in ('exponentiated_gradient', 'grid_search')):
+            # The demo server serves stored models only and never trains one.
+            if os.getenv(CACHE_ONLY) == "1":
                 raise HTTPException(status_code=503, detail=(
-                    "This configuration is too slow to compute on the demo server and has not been "
-                    "precomputed yet. Try another classifier or mitigation method, or run BeeFAME "
-                    "locally (see the README)."))
+                    "This configuration has not been precomputed for the demo server. Try another one, or "
+                    "run BeeFAME locally, where any configuration is computed on demand (see the README)."))
             logger.info("No stored models for this configuration; training...")
             # Train base model
             context.base_model = train_model(

@@ -10,9 +10,9 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      # 1 on the public demo server (set in its .env): slow Census Income configurations are
-      # served from the precomputed cache only, never trained on demand.
-      - SERVE_SLOW_FROM_CACHE_ONLY=${SERVE_SLOW_FROM_CACHE_ONLY:-0}
+      # 1 on the public demo server (set in its .env): results come from the precomputed cache
+      # only and nothing is trained on demand.
+      - SERVE_FROM_CACHE_ONLY=${SERVE_FROM_CACHE_ONLY:-0}
     depends_on:
       - redis
     networks:
@@ -29,7 +29,7 @@ services:
       # Trained models and dataset copies; must survive rebuilds and server moves
       - beespector_models:/app/model_cache
     environment:
-      - SERVE_SLOW_FROM_CACHE_ONLY=${SERVE_SLOW_FROM_CACHE_ONLY:-0}
+      - SERVE_FROM_CACHE_ONLY=${SERVE_FROM_CACHE_ONLY:-0}
     networks:
       - beefame
 

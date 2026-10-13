@@ -18,7 +18,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
 from sklearn.metrics import roc_curve, precision_recall_curve, confusion_matrix, roc_auc_score, f1_score, accuracy_score
-from sklearn.inspection import partial_dependence
 from sklearn.decomposition import PCA
 from ucimlrepo import fetch_ucirepo
 from sklearn.impute import SimpleImputer
@@ -995,6 +994,28 @@ async def get_performance_fairness():
         }
     }
 
+def _partial_dependence(model, X: pd.DataFrame, feature: str, grid_resolution: int = 20):
+    """Brute-force partial dependence: mean positive-class probability as `feature` sweeps a grid.
+
+    Same grid and averaging as sklearn's brute method (5th-95th percentile, 20 points), but it works
+    for any model with predict_proba. sklearn's partial_dependence only accepts sklearn estimators,
+    and the in-processing, post-processing and FTU models are wrappers, so their tab came back empty.
+    """
+    from scipy.stats.mstats import mquantiles  # the percentile definition sklearn's grid uses
+    values = X[feature].dropna().values
+    unique = np.unique(values)
+    if len(unique) < grid_resolution:
+        grid = unique
+    else:
+        grid = np.linspace(*mquantiles(values, prob=[0.05, 0.95]), grid_resolution)
+    averages = []
+    for v in grid:
+        X_v = X.copy()
+        X_v[feature] = v
+        averages.append(float(np.mean(model.predict_proba(X_v)[:, 1])))
+    return grid, averages
+
+
 @app.get("/api/partial_dependence")
 async def get_partial_dependence():
     if not context.is_initialized: 
@@ -1009,9 +1030,8 @@ async def get_partial_dependence():
         if not feature_name or feature_name not in X_sample.columns: 
             continue
         try:
-            base_pd = partial_dependence(context.base_model, X_sample, features=[feature_name], grid_resolution=20)
-            mitigated_pd = partial_dependence(context.mitigated_model, X_sample, features=[feature_name], grid_resolution=20)
-            grid_vals, base_avg, mit_avg = base_pd['grid_values'][0], base_pd['average'][0], mitigated_pd['average'][0]
+            grid_vals, base_avg = _partial_dependence(context.base_model, X_sample, feature_name)
+            _, mit_avg = _partial_dependence(context.mitigated_model, X_sample, feature_name)
             pd_results[feature_name] = [{"x": float(x), "base": float(b), "mitigated": float(m)} for x, b, m in zip(grid_vals, base_avg, mit_avg)]
         except Exception as e:
             logger.warning(f"Could not calculate PDP for '{feature_name}': {e}")

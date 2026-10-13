@@ -95,7 +95,7 @@ outcome.
 5. `backend/app/service/evaluation_service.py`: add the dataset to the `datasets` dict and the same
    preprocessing.
 6. Deep Dive (optional): add it to `load_dataset` and to the feature setup in `initialize_context` in
-   `beespector/main.py`.
+   `beespector/main.py`, and define its protected groups in `protected_group` the same way as in step 3.
 
 Datasets are downloaded from the [UCI repository](https://archive.ics.uci.edu/) by id. For a dataset
 that is not on UCI, such as a CSV file, have `fetch_dataset` in `dataset_utils.py` and the download in

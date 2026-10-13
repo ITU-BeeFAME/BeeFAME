@@ -149,10 +149,12 @@ whenever training code changes**, or stale models will keep being served.
 
 - `beespector/pretrain_svc.py` is unused: the Adult + SVC special case it fed was replaced by the
   general model store.
-- **The two services load different data.** Backend fetches the adult dataset as UCI id **2**;
-  beespector and `pretrain_svc.py` use id **20**. Both derive German gender from `attribute9`
-  (A92/A95 = female), but the backend drops `Attribute9` and beespector keeps it. Numbers are not
-  expected to match across the two.
+- **The two services preprocess differently.** Both fetch Adult as UCI id **2** (id 20, still used by
+  `pretrain_svc.py`, serves identical data). The backend drops rows with missing values, binarises
+  Age and Race and one-hot encodes; Beespector keeps every row (imputing), keeps raw editable
+  features, and keeps `attribute9` next to its derived `sex`. Protected groups are defined the same
+  way in both (Beespector's `protected_group`: old = age >= 50, men privileged), so numbers are close
+  but not identical.
 - German's target is **1 = good credit** (the favourable outcome) in both services, so SPD and DI
   measure who is granted good credit. Before 2026-10-12 it was inverted (1 = bad credit).
 - `service/redis_client.py` reads `REDIS_HOST`/`REDIS_PORT`/`REDIS_DB`, and falls back to inferring
@@ -175,8 +177,8 @@ whenever training code changes**, or stale models will keep being served.
   an uncached Census Income configuration with SVC or an in-processing method answers 503 instead of
   training (`service/precompute_guard.py`, and the matching check in Beespector's
   `initialize_context`). Locally it is unset and everything is computed on demand.
-- Beespector's mitigations differ from the backend's: its Age groups are `age <= 30` = young (the
-  backend uses `age >= 50` = old), and its preprocessing methods group by the raw sensitive column.
+- A protected attribute added to the backend must also be added to Beespector's `protected_group`
+  (`AGE_COLUMNS` / `PRIVILEGED_VALUES`), or Deep Dive will group it differently.
 - Comments and log messages are a mix of English and Turkish. Match the surrounding file.
 
 ## Conventions

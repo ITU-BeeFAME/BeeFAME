@@ -181,7 +181,7 @@ CACHE_DIR = "model_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Bump when the training code changes, so models stored by older code are not reused.
-MODEL_CACHE_VERSION = "v1"
+MODEL_CACHE_VERSION = "v2"  # v2: protected groups defined as in the backend wizard
 # Bump a dataset's entry when its loading changes: only that dataset's stored copy and models are
 # rebuilt. Datasets without an entry keep their original file names.
 DATASET_CACHE_VERSIONS = {
@@ -195,6 +195,26 @@ METHOD_MODEL_VERSIONS = {
 }
 
 SLOW_ON_DEMAND = "SERVE_SLOW_FROM_CACHE_ONLY"
+
+
+# Protected groups, defined exactly as the backend wizard defines them so that Deep Dive compares
+# the same people: Age is old (age >= 50, backend `age_binary`) versus young, Gender is male versus
+# female. 1 marks the privileged group, 0 the unprivileged one.
+AGE_COLUMNS = {'age', 'attribute13'}
+PRIVILEGED_VALUES = {'sex': 'Male'}
+
+
+def protected_group(X: pd.DataFrame, column: str) -> np.ndarray:
+    """1 for the privileged group and 0 for the unprivileged one; zeros if the column is absent."""
+    if column not in X.columns:
+        return np.zeros(len(X), dtype=int)
+    values = X[column]
+    if column in AGE_COLUMNS:
+        return (values >= 50).astype(int).values
+    if column in PRIVILEGED_VALUES:
+        return (values == PRIVILEGED_VALUES[column]).astype(int).values
+    # A user-added binary attribute: use its own 0/1 coding.
+    return values.fillna(0).astype(int).values
 
 
 def _dataset_cache_name(dataset_name: str) -> str:
@@ -239,7 +259,7 @@ def _store_models(path: str, base_model, mitigated_model) -> None:
 # --- Helper Functions ---
 
 def load_dataset(dataset_name: str) -> pd.DataFrame:
-    dataset_map = {"adult": 20, "german": 144}
+    dataset_map = {"adult": 2, "german": 144}  # UCI 2 and 20 serve identical Adult data; 2 matches the backend
     if dataset_name not in dataset_map: 
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
@@ -454,15 +474,7 @@ class PostprocessingWrapper:
         self._fit_postprocessing(X_train, y_train)
 
     def _get_sensitive_groups(self, X):
-        if self.sensitive_col in X.columns:
-            s_col = X[self.sensitive_col]
-            if self.sensitive_col in ['age', 'attribute13']:
-                return np.where(s_col <= 30, 0, 1)
-            else:
-                groups = s_col.dropna().unique()
-                group_map = {g: i for i, g in enumerate(groups)}
-                return s_col.map(group_map).fillna(0).astype(int).values
-        return np.zeros(len(X), dtype=int)
+        return protected_group(X, self.sensitive_col)
 
     THRESHOLD_CONSTRAINTS = {
         'equalized_odds_postprocessing': 'equalized_odds',
@@ -505,11 +517,7 @@ class PostprocessingWrapper:
 def get_mitigation_weights(X_train: pd.DataFrame, y_train: pd.Series, sensitive_col: str):
     X_train_copy = X_train.copy()
     
-    if sensitive_col == 'age' or sensitive_col == 'attribute13':
-        age_threshold = 30
-        sensitive_values = np.where(X_train_copy[sensitive_col] <= age_threshold, 'Young', 'Old')
-    else:
-        sensitive_values = X_train_copy[sensitive_col]
+    sensitive_values = protected_group(X_train_copy, sensitive_col)
     
     y_and_sensitive = pd.DataFrame({'y': y_train, 'sensitive': sensitive_values})
     overall_positive_rate = y_train.mean()
@@ -626,16 +634,7 @@ async def initialize_context_endpoint(request: InitializeContextRequest):
                 # Preprocess data first, then apply fairlearn on preprocessed data
                 X_train_processed = context.preprocessor.fit_transform(context.X_train)
                 sensitive_col = context.sensitive_feature_actual
-                if sensitive_col in context.X_train.columns:
-                    s_col = context.X_train[sensitive_col]
-                    if sensitive_col in ['age', 'attribute13']:
-                        s_train = np.where(s_col <= 30, 0, 1)
-                    else:
-                        groups = s_col.dropna().unique()
-                        group_map = {g: i for i, g in enumerate(groups)}
-                        s_train = s_col.map(group_map).fillna(0).astype(int).values
-                else:
-                    s_train = np.zeros(len(context.y_train), dtype=int)
+                s_train = protected_group(context.X_train, sensitive_col)
 
                 # Get a bare classifier (not in a pipeline)
                 clf_map = {
@@ -702,7 +701,7 @@ async def initialize_context_endpoint(request: InitializeContextRequest):
 
             elif mitigation_key in PREPROCESSING_METHODS:
                 sensitive_col = context.sensitive_feature_actual
-                s_train = context.X_train[sensitive_col].astype('category') if sensitive_col in context.X_train.columns else pd.Series(np.zeros(len(context.X_train)), index=context.X_train.index).astype('category')
+                s_train = pd.Series(protected_group(context.X_train, sensitive_col), index=context.X_train.index).astype('category')
                 
                 if mitigation_key == 'data_repairer':
                     X_train_mitigated, y_train_mitigated = run_data_repairer(context.X_train, context.y_train, s_train)
@@ -931,20 +930,13 @@ async def get_performance_fairness():
     stat_parity, disparate_impact, eq_opp = 0.0, 1.0, 0.0
 
     def get_group_masks(X, sensitive_col_name):
-        """Return (g1_mask, g2_mask) using the same binning logic as get_mitigation_weights."""
+        """Return (unprivileged_mask, privileged_mask), the groups the backend wizard uses."""
         if sensitive_col_name not in X.columns:
             return None, None
-        col = X[sensitive_col_name]
-        if sensitive_col_name in ['age', 'attribute13']:
-            g1_mask = col <= 30
-            g2_mask = col > 30
-        else:
-            groups = col.dropna().unique()
-            if len(groups) < 2:
-                return None, None
-            g1_mask = col == groups[0]
-            g2_mask = col == groups[1]
-        return g1_mask, g2_mask
+        privileged = protected_group(X, sensitive_col_name)
+        if len(np.unique(privileged)) < 2:
+            return None, None
+        return privileged == 0, privileged == 1
 
     sensitive_col_name = getattr(context, 'sensitive_feature_actual', None)
     g1_mask, g2_mask = get_group_masks(context.X_test, sensitive_col_name) if sensitive_col_name else (None, None)

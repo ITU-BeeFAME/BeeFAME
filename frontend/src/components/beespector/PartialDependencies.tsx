@@ -161,6 +161,7 @@ function PartialDependencies() {
                     dataKey="x"
                     type="number"
                     domain={['dataMin', 'dataMax']}
+                    tickFormatter={formatValue}
                     label={{
                       value: formatFeatureName(selectedFeature),
                       position: 'insideBottom',
@@ -175,7 +176,7 @@ function PartialDependencies() {
                     }}
                     domain={[0, 1]}
                   />
-                  <Tooltip formatter={(value: number) => value.toFixed(3)} />
+                  <Tooltip formatter={(value: number) => value.toFixed(3)} labelFormatter={(v: number) => formatValue(v)} />
                   <Legend />
                   <Line
                     type="monotone"
@@ -202,5 +203,11 @@ function PartialDependencies() {
     </Box>
   );
 }
+
+
+// Grid values are raw floats (e.g. 64.77000000000001): show one decimal, or a rounded integer
+// with thousands separators for large values such as fnlwgt.
+const formatValue = (v: number): string =>
+  Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('en-US') : String(Number(v.toFixed(1)));
 
 export default PartialDependencies;

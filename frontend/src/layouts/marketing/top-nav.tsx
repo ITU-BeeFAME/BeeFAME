@@ -57,7 +57,8 @@ export const TopNav: FC<TopNavProps> = (props) => {
       component="header"
       sx={{
         left: 0,
-        position: 'fixed',
+        // Scrolls away with the page instead of floating (blurred) over the content.
+        position: 'absolute',
         right: 0,
         top: 0,
         pt: 2,
@@ -67,7 +68,6 @@ export const TopNav: FC<TopNavProps> = (props) => {
       <Container
         maxWidth="lg"
         sx={{
-          backdropFilter: 'blur(6px)',
           backgroundColor: 'transparent',
           borderRadius: 2.5,
           boxShadow: 'none',

@@ -4,9 +4,11 @@
 
 BeeFAME walks you through a four-step wizard to audit and reduce bias in ML classifiers. Pick a dataset, pick a classifier, apply a mitigation strategy, then compare fairness metrics before and after — side by side. For deeper inspection, **Beespector** lets you explore individual predictions and partial dependence plots.
 
-**Live demo: [beefame.site](https://beefame.site).** It is a demonstration instance that serves two
-benchmark datasets and four classifiers from a precomputed cache. To work with your own data or
-model, clone this repository and add them ([Bring Your Own Dataset or Classifier](#bring-your-own-dataset-or-classifier)).
+**Live demo: [beefame.site](https://beefame.site)** | **Demo video (4 min): [youtu.be/saEYY4AD2Po](https://youtu.be/saEYY4AD2Po)**
+
+The live demo is a demonstration instance that serves two benchmark datasets and four classifiers
+from a precomputed cache. To work with your own data or model, clone this repository and add them
+([Bring Your Own Dataset or Classifier](#bring-your-own-dataset-or-classifier)).
 
 ## Services
 
@@ -42,6 +44,8 @@ docker compose down
 ```
 
 ## Demo Walkthrough
+
+The [demo video](https://youtu.be/saEYY4AD2Po) follows these steps on Census Income.
 
 1. **Select Dataset & Classifier** — choose German Credit Data or Census Income, then pick a classifier (Random Forest, XGBoost, SVC, or Logistic Regression).
 2. **Check Bias Metrics** — radar charts display six fairness metrics per sensitive attribute (Age, Gender, Race) before any mitigation.
